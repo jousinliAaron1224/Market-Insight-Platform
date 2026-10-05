@@ -55,7 +55,8 @@ async function renderNav(here) {
 // 簡單的堆疊長條圖（SVG，不靠外部套件，離線可用）
 const PALETTE = ["#1f5fa8", "#d1495b", "#edae49", "#00798c", "#66a182", "#8d6a9f", "#999999"];
 function stackedBars(rows, keyField, series, opts = {}) {
-  const W = opts.width || 900, H = opts.height || 260, pad = { l: 36, r: 10, t: 10, b: 40 };
+  const W = opts.width || 900, H = opts.height || 260, pad = { l: opts.padLeft || 36, r: 10, t: 10, b: 40 };
+  const fmt = opts.fmt || (v => v), xfmt = opts.xfmt || (v => v);
   const totals = rows.map(r => series.reduce((s, k) => s + (r[k] || 0), 0));
   const max = Math.max(1, ...totals);
   const bw = (W - pad.l - pad.r) / rows.length;
@@ -65,7 +66,7 @@ function stackedBars(rows, keyField, series, opts = {}) {
   for (let i = 0; i <= ticks; i++) {
     const v = Math.round(max * i / ticks);
     g += `<line x1="${pad.l}" x2="${W - pad.r}" y1="${y(v)}" y2="${y(v)}" stroke="#ddd"/>`
-      + `<text x="${pad.l - 4}" y="${y(v) + 4}" font-size="11" text-anchor="end" fill="#555">${v}</text>`;
+      + `<text x="${pad.l - 4}" y="${y(v) + 4}" font-size="11" text-anchor="end" fill="#555">${fmt(v)}</text>`;
   }
   rows.forEach((r, i) => {
     let acc = 0;
@@ -73,12 +74,16 @@ function stackedBars(rows, keyField, series, opts = {}) {
     series.forEach((k, j) => {
       const v = r[k] || 0;
       if (!v) return;
-      g += `<rect x="${x}" y="${y(acc + v)}" width="${w}" height="${y(acc) - y(acc + v)}" fill="${PALETTE[j % PALETTE.length]}"><title>${esc(r[keyField])} ${esc(k)}：${v}</title></rect>`;
+      g += `<rect x="${x}" y="${y(acc + v)}" width="${w}" height="${y(acc) - y(acc + v)}" fill="${PALETTE[j % PALETTE.length]}"><title>${esc(r[keyField])} ${esc(k)}：${fmt(v)}</title></rect>`;
       acc += v;
     });
-    if (totals[i]) g += `<text x="${x + w / 2}" y="${y(totals[i]) - 3}" font-size="11" text-anchor="middle">${totals[i]}</text>`;
-    g += `<text x="${x + w / 2}" y="${H - pad.b + 16}" font-size="11" text-anchor="middle">${esc(r[keyField])}</text>`;
+    if (totals[i] && opts.totals !== false)
+      g += `<text x="${x + w / 2}" y="${y(totals[i]) - 3}" font-size="11" text-anchor="middle">${fmt(totals[i])}</text>`;
+    g += `<text x="${x + w / 2}" y="${H - pad.b + 16}" font-size="11" text-anchor="middle">${esc(xfmt(r[keyField], i))}</text>`;
   });
   const legend = series.map((k, j) => `<span class="small" style="margin-right:12px"><span style="display:inline-block;width:10px;height:10px;background:${PALETTE[j % PALETTE.length]}"></span> ${esc(k)}</span>`).join("");
   return `<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:${W}px">${g}</svg><div>${legend}</div>`;
 }
+
+const num = (v, d = 0) => v == null ? "—" : Number(v).toLocaleString("zh-TW", { minimumFractionDigits: d, maximumFractionDigits: d });
+const signed = v => v == null ? "—" : (v > 0 ? "+" : "") + v.toFixed(1) + "%";

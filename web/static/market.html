@@ -17,7 +17,7 @@
 <h2>供給面：各家投資型商品的出手節奏</h2>
 <div id="supply"></div>
 
-<h2>需求面：新契約保費依險種的趨勢</h2>
+<h2>需求面：全市場保費收入依險種的趨勢</h2>
 <div id="demand"></div>
 
 <h2>市占率：各公司保費與排名</h2>
@@ -65,18 +65,59 @@ async function loadSupply() {
   return s.conclusions.map(c => `<li>${esc(c)}<span class="small muted">（供給面，來源：各公司法定公開商品清單）</span></li>`);
 }
 
-function pending(where, what) {
-  document.getElementById(where).innerHTML = `<p class="muted">${what}</p>`;
+const ymd = s => /^\d{8}$/.test(s || "") ? `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6)}` : (s || "");
+
+async function loadDemand() {
+  const d = await getJSON("/api/market/demand");
+  const box = document.getElementById("demand");
+  const errs = (d.errors || []).map(e => `<p class="warn">${esc(e)}</p>`).join("");
+  if (!d.as_of) {
+    box.innerHTML = errs + '<p class="muted">還沒有資料。在 Mac 執行 <code>python -m scheduler.run open_data -v</code> 下載後重新整理。</p>';
+    return [];
+  }
+  const L = d.lines;
+  const ytd = d.ytd.map(r => `<tr${r.line === "合計" ? ' style="font-weight:bold"' : ""}><td>${esc(r.line)}</td>
+      <td>${num(r.this)}</td><td>${num(r.last)}</td><td>${signed(r.growth)}</td>
+      <td>${r.line === "合計" ? "" : `${r.share_last.toFixed(1)}% → ${r.share.toFixed(1)}%`}</td></tr>`).join("");
+  const ann = d.annual.slice(-10).reverse().map(a => `<tr><td>${a.year}</td><td>${num(a.total)}</td><td>${signed(a.yoy)}</td>
+      ${L.map(l => `<td>${num(a[l])}</td>`).join("")}<td>${a.annuity_share}%</td></tr>`).join("");
+  const ref = d.investment_ref;
+  const refHtml = ref ? `<h3 class="small">投資型的參考值（壽險公會「壽險業績統計」，政府資料開放平臺 14539）</h3>
+    <p class="small">這個資料集只有一期，公告日期 ${esc(ymd(ref.announced))}，之後沒再更新：${esc(ref.summary || "")}。
+      太舊，只當參考；<a href="${esc(ref.raw)}">原始檔</a></p>` : "";
+  box.innerHTML = errs + `
+    <p class="small muted">資料：${esc(d.source.name)}，資料到 ${esc(d.as_of)}（公告 ${esc(ymd(d.announced))}），單位：億元。
+      <a href="${esc(d.source.raw)}">原始檔</a>｜<a href="${esc(d.source.url || "#")}">下載來源</a><br>
+      注意：這是「保費收入」，包含續期保費，不只新契約；而且只分險種、不分投資型（變額年金算在個人年金、投資型壽險算在個人壽險），也沒有公司別。</p>
+    <h3 class="small">每月保費收入（最近 24 個月，依險種）</h3>
+    ${stackedBars(d.monthly, "month", L, { fmt: v => num(v), totals: false, padLeft: 48,
+        xfmt: (m, i) => (i % 3 === 0 || i === d.monthly.length - 1) ? m.slice(2).replace("-", "/") : "" })}
+    <h3 class="small">${esc(d.ytd_label)} vs ${esc(d.ytd_last_label)}</h3>
+    <table><thead><tr><th>險種</th><th>今年（億元）</th><th>去年同期</th><th>年增</th><th>占比（去年→今年）</th></tr></thead><tbody>${ytd}</tbody></table>
+    <h3 class="small">最近 10 年全年保費收入（億元）</h3>
+    <table><thead><tr><th>年</th><th>合計</th><th>年增</th>${L.map(l => `<th>${esc(l)}</th>`).join("")}<th>年金占比</th></tr></thead><tbody>${ann}</tbody></table>
+    ${refHtml}`;
+  return d.conclusions.map(c => `<li>${esc(c)}<span class="small muted">（需求面，來源：保險事業發展中心 人身保險業保費收入）</span></li>`);
+}
+
+function shareGap() {
+  document.getElementById("share").innerHTML = `
+    <p>還沒有公司別資料。原本規劃的「人身保險業保費收入統計表（月報）」（104113）下載後確認是<b>全市場依險種</b>的統計，沒有公司別，已改用在上面的需求面。</p>
+    <p class="small">待確認的公司別來源（要先看實際檔案與 robots.txt 才能決定）：</p>
+    <ul class="small">
+      <li>政府資料開放平臺 7191「壽險財務業務指標」、13517「保險業保費收入統計表」：在 Mac 執行
+        <code>python scripts/probe_open_data.py 7191 13517</code> 看欄位有沒有公司別</li>
+      <li>保險業公開資訊觀測站（ins-info.ib.gov.tw）「各險別之保費收入及保險給付」：每家公司各自揭露，可能可以拼出市占率</li>
+      <li>壽險公會各公司業績統計：有投資型初年度保費，最貼近「法巴在投資型市場的位置」，但要先確認 robots.txt 是否允許</li>
+    </ul>`;
 }
 
 (async () => {
   await renderNav("market");
-  const conc = await loadSupply();
-  pending("demand", "尚未接上資料。來源：壽險公會「壽險業績統計」（政府資料開放平臺 14539，新契約保費依險種，含投資型）。"
-    + "請在 Mac 執行 <code>python -m scheduler.run open_data -v</code> 下載；下載到的檔案格式確認後才接上解析（這一步需要看實際檔案）。");
-  pending("share", "尚未接上資料。來源：金管會保險局「人身保險業保費收入統計表（月報）」（政府資料開放平臺 104113，依公司別）。下載方式同上。");
-  document.getElementById("conclusions").innerHTML = conc.join("")
-    + '<li class="muted">需求面、市占率：待接上開放資料後自動產生結論。</li>';
+  const [sup, dem] = await Promise.all([loadSupply(), loadDemand()]);
+  shareGap();
+  document.getElementById("conclusions").innerHTML = sup.join("") + dem.join("")
+    + '<li class="muted">市占率：還沒有公司別資料（見下方）。</li>';
 })();
 </script>
 </body>

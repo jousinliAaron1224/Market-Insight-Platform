@@ -143,3 +143,121 @@ def conclusions(per: dict[str, dict], self_co: str | None, waves: list[dict], as
         cause = f"，其中 {w['top_doc'][1]} 件依同一主管機關文號（{w['top_doc'][0]}）逕修，屬全面性法規修正" if w["top_doc"] else ""
         out.append(f"條款修正最集中在 {w['month']}（{w['count']} 件，分布於 {len(w['companies'])} 家公司）{cause}。")
     return out
+
+
+# ====================================================================== 需求面
+def _latest_open_data(conn, dataset: str) -> dict[str, Any] | None:
+    best = None
+    for r in conn.execute("""SELECT raw_path, fetched_at, meta, version FROM raw_docs
+                             WHERE source_id='open_data' ORDER BY fetched_at, version"""):
+        m = json.loads(r["meta"])
+        if m.get("dataset") == dataset:
+            best = {"raw_path": r["raw_path"], "fetched_at": r["fetched_at"], "meta": m}
+    return best
+
+
+def _yi(v: float) -> float:
+    """百萬元 → 億元（一位小數）"""
+    return round(v / 100, 1)
+
+
+def _g(a: float, b: float) -> float | None:
+    return round((a / b - 1) * 100, 1) if b else None
+
+
+def demand(conn, read_raw) -> dict[str, Any]:
+    """全市場保費收入依險種（TII I10）＋壽險公會 14539 的投資型參考值。read_raw(raw_path) → bytes。"""
+    from parsers.open_data import LINES, parse_lia_14539, parse_tii_i10
+
+    out: dict[str, Any] = {"as_of": None, "lines": LINES, "conclusions": [], "errors": []}
+    src = _latest_open_data(conn, "ib_premium_monthly")
+    if src:
+        try:
+            t = parse_tii_i10(read_raw(src["raw_path"]))
+        except Exception as e:
+            out["errors"].append(f"保費收入統計表解析失敗：{e}")
+            t = None
+        if t:
+            out.update(_demand_from_i10(t))
+            out["source"] = {"name": "保險事業發展中心「人身保險業保費收入」（政府資料開放平臺 104113）",
+                             "url": src["meta"].get("final_url"), "raw": f"/{src['raw_path']}",
+                             "fetched_at": src["fetched_at"]}
+    ref = _latest_open_data(conn, "lia_performance")
+    if ref:
+        try:
+            rows = parse_lia_14539(read_raw(ref["raw_path"]))
+            out["investment_ref"] = _investment_ref(rows)
+            out["investment_ref"]["raw"] = f"/{ref['raw_path']}"
+        except Exception as e:
+            out["errors"].append(f"壽險業績統計解析失敗：{e}")
+    return out
+
+
+def _demand_from_i10(t: dict[str, Any]) -> dict[str, Any]:
+    from parsers.open_data import LINES
+
+    monthly = t["monthly"]
+    last = monthly[-1]
+    y, m = int(last["month"][:4]), int(last["month"][5:])
+    by_month = {x["month"]: x for x in monthly}
+
+    def ytd(year):
+        rows = [by_month.get(f"{year}-{i:02d}") for i in range(1, m + 1)]
+        if any(r is None for r in rows):
+            return None
+        return {"total": sum(r["total"] for r in rows),
+                "lines": {ln: sum(r["lines"][ln] for r in rows) for ln in LINES}}
+
+    cur, prev = ytd(y), ytd(y - 1)
+    ytd_rows = []
+    if cur and prev:
+        for ln in LINES:
+            a, b = cur["lines"][ln], prev["lines"][ln]
+            ytd_rows.append({"line": ln, "this": _yi(a), "last": _yi(b), "growth": _g(a, b),
+                             "share": round(a * 100 / cur["total"], 1), "share_last": round(b * 100 / prev["total"], 1)})
+        ytd_rows.append({"line": "合計", "this": _yi(cur["total"]), "last": _yi(prev["total"]),
+                         "growth": _g(cur["total"], prev["total"]), "share": 100.0, "share_last": 100.0})
+
+    recent = [{"month": x["month"], "total": _yi(x["total"]), "yoy": x["yoy"],
+               **{ln: _yi(x["lines"][ln]) for ln in LINES}} for x in monthly[-24:]]
+    annual = [{"year": a["year"], "total": _yi(a["total"]), "yoy": a["yoy"],
+               **{ln: _yi(a["lines"][ln]) for ln in LINES},
+               "annuity_share": round(a["lines"]["個人年金"] * 100 / a["total"], 1)} for a in t["annual"]]
+    res = {"as_of": last["month"], "announced": last.get("announced"), "ytd_label": f"{y} 年 1–{m} 月",
+           "ytd_last_label": f"{y - 1} 年 1–{m} 月", "ytd": ytd_rows, "monthly": recent, "annual": annual}
+    res["conclusions"] = demand_conclusions(res)
+    return res
+
+
+def demand_conclusions(d: dict[str, Any]) -> list[str]:
+    out = []
+    rows = {r["line"]: r for r in d.get("ytd", [])}
+    if "合計" in rows:
+        tot = rows["合計"]
+        out.append(f"{d['ytd_label']}人身保險業保費收入 {tot['this']:,.0f} 億元，比去年同期 {tot['growth']:+.1f}%"
+                   f"（含續期保費，不只新契約）。")
+        lines = [r for k, r in rows.items() if k != "合計" and r["growth"] is not None]
+        fast = max(lines, key=lambda r: r["growth"])
+        out.append(f"成長最快的是{fast['line']}：{fast['this']:,.0f} 億元、{fast['growth']:+.1f}%，"
+                   f"占比由 {fast['share_last']}% 升到 {fast['share']}%；"
+                   + "、".join(f"{r['line']} {r['growth']:+.1f}%" for r in lines if r is not fast) + "。")
+    ann = (d.get("annual") or [])[-10:]
+    if "個人年金" in rows and len(ann) >= 5:
+        now = rows["個人年金"]["share"]
+        avg = round(sum(a["annuity_share"] for a in ann) / len(ann), 1)
+        higher = [a for a in d["annual"] if a["annuity_share"] >= now]
+        last_hi = f"上一次全年這麼高是 {higher[-1]['year']} 年（{higher[-1]['annuity_share']}%）" if higher \
+            else "是有資料以來最高"
+        out.append(f"{d['ytd_label']}個人年金占比 {now}%，{'高於' if now > avg else '不高於'} {ann[0]['year']}–{ann[-1]['year']} 年全年平均 {avg}%；{last_hi}。")
+    return out
+
+
+def _investment_ref(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    first = {r["item"]: r for r in rows if r["item"].startswith("初年度")}
+    inv, trad = first.get("初年度投資型"), first.get("初年度傳統型")
+    res: dict[str, Any] = {"rows": rows, "announced": rows[0]["announced"] if rows else None}
+    if inv and trad and inv["this"] and trad["this"]:
+        share = inv["this"] * 100 / (inv["this"] + trad["this"])
+        res["summary"] = (f"初年度保費投資型 {_yi(inv['this']):,.0f} 億元（{inv['growth']:+.1f}%），"
+                          f"占初年度保費 {share:.1f}%")
+    return res

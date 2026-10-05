@@ -161,8 +161,9 @@ sources:
     x509_strict: false
     extra_ca_files: [config/certs/openapi.tii.org.tw.pem]
     datasets:
-      - {id: 14539, name: lia_performance, purpose: demand, note: 壽險業績統計（壽險公會）：新契約保費依險種}
-      - {id: 104113, name: ib_premium_monthly, purpose: share, note: 人身保險業保費收入統計表（月報，保險局）：依公司別}
+      # 下載後確認的內容（2026-10-05）：
+      - {id: 14539, name: lia_performance, purpose: demand_ref, note: 壽險業績統計（壽險公會）：只有一期初／續年度×投資型／傳統型，公告 2020-03-25}
+      - {id: 104113, name: ib_premium_monthly, purpose: demand, note: 人身保險業保費收入（保發中心 I10）：全市場依險種、依月，無公司別}
 
   - id: news_rss               # D9／D10／D16
     tier: D

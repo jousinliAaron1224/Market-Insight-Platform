@@ -36,6 +36,10 @@ def site(tmp_path_factory):
          "first_date": "2023-08-14", "latest_date": "2025-01-01", "clause_url": "https://x/c.pdf"}, "pdf")
     db.conn.execute("INSERT INTO products (company, name, line, currency, status) VALUES (?,?,?,?, 'on_sale')",
                     ("凱基人壽", NAME, "變額年金保險", "USD"))
+    for name, f in (("ib_premium_monthly", "tii_i10_trimmed.csv"), ("lia_performance", "lia_14539.csv")):
+        add(db, raw, "open_data", f"{name}:0", "csv", fixture_bytes("open_data", f),
+            {"title": name, "dataset": name, "final_url": "https://example.org/x.csv",
+             "event_extra": {"dataset": name}}, "csv")
     db.conn.commit()
     st = process_pending(ParseContext(db=db, raw=raw, config=load_config()["parsing"]))
     assert st["ok"] == 3
@@ -124,6 +128,17 @@ def test_market_supply(site):
     assert (c["on_sale"], c["families"], c["foreign"]) == (1, 1, 1)
     assert s["revision_waves"][0]["month"] == "2025-01" and s["conclusions"]
     assert get(base, "/market.html")[0] == 200
+
+
+def test_market_demand(site):
+    _, base, _ = site
+    d = json.loads(get(base, "/api/market/demand")[2])
+    assert d["as_of"] == "2026-06" and not d["errors"]
+    tot = next(r for r in d["ytd"] if r["line"] == "合計")
+    assert tot["this"] == 16310.9 and tot["growth"] == 23.7
+    assert "個人年金" in d["conclusions"][1] and "+103.6%" in d["conclusions"][1]
+    assert d["investment_ref"]["summary"].startswith("初年度保費投資型 2,760 億元")
+    assert get(base, d["source"]["raw"])[0] == 200
 
 
 def test_family_names():

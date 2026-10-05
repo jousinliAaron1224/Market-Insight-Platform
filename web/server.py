@@ -17,6 +17,7 @@ API（全部 GET、回 JSON）：
     /api/product?company=&name=   單一商品：統一欄位＋出處＋待補欄位＋版本與改版差異
     /api/articles?raw_doc_id=     條款條文（條號、標題、頁碼、本文）
     /api/market/supply            市場數據・供給面（各家新核准／修正節奏、險種幣別結構、結論句）
+    /api/market/demand            市場數據・需求面（全市場保費收入依險種、年增率、結論句；開放資料）
     /<raw_path>（raw/…）          原始檔（條款 PDF 可加 #page=N 直接跳頁）；限定在 raw 目錄內
 """
 from __future__ import annotations
@@ -304,6 +305,11 @@ class Store:
                 return {"as_of": None, "companies": [], "conclusions": []}
             return supply(c, self.impact_rules.get("self_company"))
 
+    def market_demand(self) -> dict[str, Any]:
+        from web.market import demand
+        with self.conn() as c:
+            return demand(c, lambda rel: (self.data_dir / rel).read_bytes())
+
     def articles(self, raw_doc_id: int) -> list[dict[str, Any]]:
         with self.conn() as c:
             return [dict(r) for r in c.execute(
@@ -356,6 +362,8 @@ def make_handler(store: Store):
                     return self._json(d) if d else self._json({"error": "not found"}, 404)
                 if u.path == "/api/market/supply":
                     return self._json(store.market_supply())
+                if u.path == "/api/market/demand":
+                    return self._json(store.market_demand())
                 if u.path == "/api/products":
                     return self._json(store.products(q))
                 if u.path == "/api/product":
