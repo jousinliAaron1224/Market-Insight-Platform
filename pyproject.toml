@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "insurance-intel"
+version = "0.1.0"
+description = "保險商品與市場情報平台 — 資料來源層（BNP Paribas Cardif 黑客松 Theme 3-1）"
+requires-python = ">=3.10"
+dependencies = [
+  "httpx>=0.27",
+  "feedparser>=6.0",
+  "selectolax>=0.3",
+  "pyyaml>=6.0",
+  "certifi",
+  "apscheduler>=3.10,<4",
+  "pdfplumber>=0.11",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+# 之後若遇到需 JS 渲染的官網：playwright
+
+# flat layout 有多個頂層目錄（data/、config/ 不是套件），需明確列出，否則 setuptools 自動偵測會失敗
+[tool.setuptools]
+packages = ["adapters", "adapters.companies", "core", "scheduler"]
+
+[tool.setuptools.package-data]
+core = ["schema.sql"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

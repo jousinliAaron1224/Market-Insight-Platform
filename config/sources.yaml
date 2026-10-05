@@ -1,0 +1,120 @@
+# 所有來源設定集中於此，不寫死在程式碼（Handbook「排程、限速與事件觸發」）
+defaults:
+  per_domain_concurrency: 1
+  min_interval_sec: 3
+  user_agent: "InsuranceIntelBot/0.1 (hackathon; contact: jousinli1224@gmail.com)"
+  retry: { max: 3, backoff_sec: [30, 120, 600] }   # 只重試網路錯誤、429、5xx；4xx 與解析錯誤不重試
+  respect_robots: true
+  timezone: Asia/Taipei        # cron 排程以台北時間解讀（D18）
+  health_zero_runs: 3          # 連續幾輪 0 筆發警示
+  health_missing_ratio: 0.3    # 解析不到必要欄位的比例超過此值發警示
+  db_path: data/intel.db
+  raw_root: data/raw
+
+sources:
+  - id: tii_law_rss
+    tier: A
+    schedule: "0 */2 * * *"
+    adapter: adapters.tii_law_rss:TiiLawRssAdapter
+    domain: law.tii.org.tw
+    feed_url: https://law.tii.org.tw/Fn/rss.asp
+    fetch_detail: true          # RSS item + 內文頁 ShowNews.asp 都存 raw
+    # 決策 2026-10-02（Chris）：law.tii.org.tw 的 robots.txt 為 "Disallow: /"，
+    # 但開放資料 API（openapi.tii.org.tw K101）落後約 2 個月且無內文，
+    # 故此來源例外不檢查 robots；以每網域 1 並發、間隔 >= 3 秒低頻抓取。
+    respect_robots: false
+    # law.tii.org.tw 的 TLS 憑證鏈在 Python 下驗證失敗（unable to get local issuer certificate）。
+    # 以 scripts/fetch_issuer_cert.sh 取得簽發者憑證，放這裡補進信任清單；不關閉驗證。
+    extra_ca_files: [config/certs/law.tii.org.tw.pem]
+
+  - id: fsc_press
+    tier: B
+    schedule: "15 */4 * * *"
+    adapter: adapters.fsc_press:FscPressAdapter
+    domain: www.fsc.gov.tw
+    # www.fsc.gov.tw 的憑證缺 Subject Key Identifier，Python 3.13+ 嚴格模式會拒絕；
+    # 只關這項格式檢查，憑證鏈與主機名稱仍驗證（D15）
+    x509_strict: false
+    list_pages: 3               # 每頁 15 筆；3 頁約一個月份
+    # 只抓這些單位的內文；其他單位（銀行局、證期局…）只記列表列（D12）
+    detail_units: [保險局, 金融監督管理委員會, 檢查局]
+
+  - id: fsc_penalty            # 裁罰案件 RSS（D14，Handbook 原未列）
+    tier: A
+    schedule: "40 */2 * * *"
+    adapter: adapters.fsc_penalty:FscPenaltyAdapter
+    domain: www.fsc.gov.tw
+    # www.fsc.gov.tw 的憑證缺 Subject Key Identifier，Python 3.13+ 嚴格模式會拒絕；
+    # 只關這項格式檢查，憑證鏈與主機名稱仍驗證（D15）
+    x509_strict: false
+    feed_url: https://www.fsc.gov.tw/RSS/Messages?serno=201202290003&language=chinese
+  # ---- M3 競品商品資料：投資型（D19–D21）。清單＝法定公開的「商品名稱、日期及文號」PDF ----
+  - id: company_cardif_products  # 法巴人壽（自家基準）
+    tier: C
+    schedule: "30 3 * * *"
+    adapter: adapters.companies.cardif:CardifProductsAdapter
+    domain: life.cardif.com.tw
+    product_list_page: https://life.cardif.com.tw/a5      # 清單網址含 uuid／時間戳，從此頁找最新連結
+    product_list_link: "商品名稱與核准"
+    product_list_url: https://life.cardif.com.tw/documents/418719/461728/VIE_Info_1.pdf/a7b1fe95-cfbb-4cec-a4dc-c618ff9ee336
+    clause_index_url: https://life.cardif.com.tw/a59
+
+  - id: company_cathay_products  # 國泰人壽
+    tier: C
+    schedule: "35 3 * * *"
+    adapter: adapters.companies.cathay:CathayProductsAdapter
+    domain: www.cathaylife.com.tw
+    x509_strict: false           # 憑證缺 Subject Key Identifier（D15）
+    product_list_url: https://www.cathaylife.com.tw/official/content/dam/cathaylife-official/files/laws-policies/public-info/insurance/product/Investment.pdf
+    clause_index_url: https://www.cathaylife.com.tw/official/laws-policies/public-info/info-insurance
+
+  - id: company_fubon_products   # 富邦人壽
+    tier: C
+    schedule: "40 3 * * *"
+    adapter: adapters.companies.fubon:FubonProductsAdapter
+    domain: www.fubon.com
+    x509_strict: false
+    product_list_page: https://www.fubon.com/life/Investors/public-info/fubon/D3B4A1896E0046EB844E43A98E2FC83B/
+    product_list_link: "商品之名稱、日期及文號"
+    product_list_url: https://www.fubon.com/life/cms/B57613402C4F4DDAB6AF8CAB547399A5/2026-09/202609211516302819701100.pdf
+    clause_index_url: https://www.fubon.com/life/Investors/public-info/fubon/D3B4A1896E0046EB844E43A98E2FC83B/
+
+  - id: company_taiwanlife_products  # 台灣人壽
+    tier: C
+    schedule: "45 3 * * *"
+    adapter: adapters.companies.taiwanlife:TaiwanLifeProductsAdapter
+    domain: www.taiwanlife.com
+    x509_strict: false
+    product_list_url: https://www.taiwanlife.com/portal-api/File/10904   # 檔案編號若改變需手動更新
+    clause_index_url: https://www.taiwanlife.com/portal-api/File/1792
+
+  - id: company_kgi_products     # 凱基人壽
+    tier: C
+    schedule: "50 3 * * *"
+    adapter: adapters.companies.kgi:KgiProductsAdapter
+    domain: www.kgilife.com.tw
+    x509_strict: false
+    product_list_url: https://www.kgilife.com.tw/zh-tw/-/media/files/kgil/footer/corp/publicinfo/piinsurance-products/date_ilp.pdf
+    clause_index_url: https://www.kgilife.com.tw/zh-tw/footer/corp/publicinfo/piinsurance-products/202412-insurance-products-clause
+
+  - id: news_rss               # D9／D10／D16
+    tier: D
+    schedule: "*/45 * * * *"
+    adapter: adapters.news_rss:NewsRssAdapter
+    domain: multiple             # 各 feed 依自己的網域限速
+    feeds:
+      - name: ctee_insurance     # 工商時報「保險脈動」，保險專版全收
+        url: https://www.ctee.com.tw/rss_web/category/insurance
+        keyword_filter: false
+        # 2026-10-03 停用：網站前有 Cloudflare 機器人防護，程式請求一律 403（瀏覽器可開）。
+        # 不以偽裝瀏覽器繞過；待取得許可或改用其他來源（D17）
+        enabled: false
+      - name: cna_finance        # 中央社財經；RSS 條款限非商業用途，正式上線需授權
+        url: https://feeds.feedburner.com/rsscna/finance
+        keyword_filter: true
+    keywords: [保險, 壽險, 產險, 保單, 保費, 金管會]
+    # 公關稿規則（只比對標題，命中即標 pr_noise，不丟棄）
+    pr_noise_patterns: ["勇奪", "榮獲", "奪.{0,12}獎", "獲.{0,20}獎", "獎項", "大獎", "評比",
+                        "公益", "捐贈", "捐款", "志工", "路跑", "公開賽", "盃", "音樂會", "頒獎"]
+    lead_ttl_days: 30            # RSS 導言只暫存 30 天（news_leads），raw 不含導言
+    allow_empty_runs: true       # 關鍵字過濾後常為 0 筆，不套用「連續 0 筆」警示

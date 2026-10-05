@@ -1,0 +1,162 @@
+[
+  {
+    "company": "cardif",
+    "file": "product_list.pdf",
+    "url": "https://life.cardif.com.tw/documents/418719/461728/VIE_Info_1.pdf/a7b1fe95-cfbb-4cec-a4dc-c618ff9ee336",
+    "status": 200,
+    "bytes": 1055991,
+    "tls": "strict",
+    "content_type": "application/pdf",
+    "etag": "\"1790739063:dtagent10339260603164134bPRx:dtagent10339260603164134bPRx\"",
+    "last_modified": "Wed, 30 Sep 2026 03:31:01 GMT"
+  },
+  {
+    "company": "cardif",
+    "file": "clause_page.html",
+    "url": "https://life.cardif.com.tw/a59",
+    "status": 200,
+    "bytes": 251710,
+    "tls": "strict",
+    "content_type": "text/html;charset=UTF-8",
+    "etag": "\"76612d13:dtagent10339260603164134bPRx:dtagent10339260603164134bPRx\"",
+    "last_modified": null
+  },
+  {
+    "company": "cardif",
+    "file": "clause_UA0020.pdf",
+    "url": "https://life.cardif.com.tw/documents/418719/462100/UA0020_Provision.pdf/09841c50-7153-42c7-aacd-bc9d8ad908fe",
+    "status": 200,
+    "bytes": 568054,
+    "tls": "strict",
+    "content_type": "application/pdf",
+    "etag": "\"1767854237:dtagent10339260603164134bPRx:dtagent10339260603164134bPRx\"",
+    "last_modified": "Thu, 08 Jan 2026 06:37:15 GMT"
+  },
+  {
+    "company": "cathay",
+    "file": "product_list.pdf",
+    "url": "https://www.cathaylife.com.tw/official/content/dam/cathaylife-official/files/laws-policies/public-info/insurance/product/Investment.pdf",
+    "strict_error": "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: Missing Subject Key Identifier (_ssl.c:1081)",
+    "status": 200,
+    "bytes": 396951,
+    "tls": "x509_relaxed",
+    "content_type": "application/pdf",
+    "etag": "\"0x8DF0FDE15D364DC\"",
+    "last_modified": "Fri, 11 Sep 2026 08:24:23 GMT"
+  },
+  {
+    "company": "cathay",
+    "file": "public_info_page.html",
+    "url": "https://www.cathaylife.com.tw/official/laws-policies/public-info/info-insurance",
+    "strict_error": "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: Missing Subject Key Identifier (_ssl.c:1081)",
+    "status": 200,
+    "bytes": 585607,
+    "tls": "x509_relaxed",
+    "content_type": "text/html;charset=utf-8",
+    "etag": "\"8d19f-65ce1b6f31a9a\"",
+    "last_modified": "Fri, 02 Oct 2026 20:52:47 GMT"
+  },
+  {
+    "company": "cathay",
+    "file": "investing_page.html",
+    "url": "https://www.cathaylife.com.tw/cathaylife/products/insurance/investing",
+    "strict_error": "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: Missing Subject Key Identifier (_ssl.c:1081)",
+    "error": "RemoteProtocolError('Server disconnected without sending a response.')"
+  },
+  {
+    "company": "fubon",
+    "file": "product_list.pdf",
+    "url": "https://www.fubon.com/life/cms/B57613402C4F4DDAB6AF8CAB547399A5/2026-09/202609211516302819701100.pdf",
+    "strict_error": "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: Missing Subject Key Identifier (_ssl.c:1081)",
+    "status": 200,
+    "bytes": 565639,
+    "tls": "x509_relaxed",
+    "content_type": "application/pdf",
+    "etag": "\"304d2c1b9949dd1:0\"",
+    "last_modified": "Mon, 21 Sep 2026 07:16:22 GMT"
+  },
+  {
+    "company": "fubon",
+    "file": "public_info_page.html",
+    "url": "https://www.fubon.com/life/Investors/public-info/fubon/D3B4A1896E0046EB844E43A98E2FC83B/",
+    "strict_error": "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: Missing Subject Key Identifier (_ssl.c:1081)",
+    "status": 200,
+    "bytes": 333389,
+    "tls": "x509_relaxed",
+    "content_type": "text/html; charset=utf-8",
+    "etag": null,
+    "last_modified": null
+  },
+  {
+    "company": "fubon",
+    "file": "investing_page.html",
+    "url": "https://www.fubon.com/life/product/personal/investing/",
+    "strict_error": "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: Missing Subject Key Identifier (_ssl.c:1081)",
+    "status": 200,
+    "bytes": 66918,
+    "tls": "x509_relaxed",
+    "content_type": "text/html; charset=utf-8",
+    "etag": null,
+    "last_modified": null
+  },
+  {
+    "company": "taiwanlife",
+    "file": "product_list.pdf",
+    "url": "https://www.taiwanlife.com/portal-api/File/10904",
+    "strict_error": "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: Missing Subject Key Identifier (_ssl.c:1081)",
+    "status": 200,
+    "bytes": 1011282,
+    "tls": "x509_relaxed",
+    "content_type": "application/pdf",
+    "etag": null,
+    "last_modified": null
+  },
+  {
+    "company": "taiwanlife",
+    "file": "clause_list.pdf",
+    "url": "https://www.taiwanlife.com/portal-api/File/1792",
+    "strict_error": "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: Missing Subject Key Identifier (_ssl.c:1081)",
+    "status": 200,
+    "bytes": 521461,
+    "tls": "x509_relaxed",
+    "content_type": "application/pdf",
+    "etag": null,
+    "last_modified": null
+  },
+  {
+    "company": "taiwanlife",
+    "file": "public_info_page.json",
+    "url": "https://www.taiwanlife.com/portal-api/Page/AboutUs-public-info-info-insurance",
+    "strict_error": "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: Missing Subject Key Identifier (_ssl.c:1081)",
+    "status": 200,
+    "bytes": 246,
+    "tls": "x509_relaxed",
+    "content_type": "text/html; charset=utf-8",
+    "etag": null,
+    "last_modified": null
+  },
+  {
+    "company": "kgi",
+    "file": "product_list.pdf",
+    "url": "https://www.kgilife.com.tw/zh-tw/-/media/files/kgil/footer/corp/publicinfo/piinsurance-products/date_ilp.pdf",
+    "strict_error": "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: Missing Subject Key Identifier (_ssl.c:1081)",
+    "status": 200,
+    "bytes": 277880,
+    "tls": "x509_relaxed",
+    "content_type": "application/pdf",
+    "etag": null,
+    "last_modified": "Wed, 09 Sep 2026 07:59:12 GMT"
+  },
+  {
+    "company": "kgi",
+    "file": "clause_page.html",
+    "url": "https://www.kgilife.com.tw/zh-tw/footer/corp/publicinfo/piinsurance-products/202412-insurance-products-clause",
+    "strict_error": "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: Missing Subject Key Identifier (_ssl.c:1081)",
+    "status": 200,
+    "bytes": 263694,
+    "tls": "x509_relaxed",
+    "content_type": "text/html; charset=utf-8",
+    "etag": null,
+    "last_modified": null
+  }
+]
