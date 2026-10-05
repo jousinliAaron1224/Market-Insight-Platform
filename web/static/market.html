@@ -6,104 +6,234 @@
 <title>市場數據</title>
 <link rel="stylesheet" href="/style.css">
 </head>
-<body>
+<body class="dash">
 <nav id="nav"></nav>
-<h1>市場數據</h1>
-<p class="small muted">三個問題：供給面（競品出手節奏）、需求面（市場往哪個險種移動）、市占率（法巴在市場的位置）。每個結論都附資料來源。</p>
+<main class="wrap">
+  <header class="page-h">
+    <h1>市場數據</h1>
+    <p class="muted">三個問題：<b>供給面</b>（競品出手節奏）、<b>需求面</b>（市場往哪個險種移動）、<b>市占率</b>（法巴在市場的位置）。每個結論都附資料來源；每張圖下方都可以展開表格。</p>
+  </header>
 
-<h2>結論</h2>
-<ul id="conclusions"><li class="muted">載入中…</li></ul>
+  <section class="kpis" id="kpis"></section>
 
-<h2>供給面：各家投資型商品的出手節奏</h2>
-<div id="supply"></div>
+  <section class="card">
+    <h2>重點結論</h2>
+    <ul class="conc" id="conclusions"><li class="muted">載入中…</li></ul>
+  </section>
 
-<h2>需求面：全市場保費收入依險種的趨勢</h2>
-<div id="demand"></div>
+  <h2 class="sec">供給面：各家投資型商品的出手節奏</h2>
+  <p class="sec-sub" id="supply-src"></p>
+  <div class="grid2">
+    <section class="card"><h3>近 12 個月新核准商品數</h3><p class="cap" id="cap-new"></p><div id="c-new"></div><div id="t-new"></div></section>
+    <section class="card"><h3>每季新核准商品數（最近 12 季）</h3><p class="cap">依核准日；清單只列現行商品，越早的季度越低估。</p><div id="c-q"></div><div id="l-q"></div><div id="t-q"></div></section>
+    <section class="card"><h3>銷售中商品的險種結構</h3><p class="cap">每家銷售中投資型商品依險種的比例；右側為商品數。</p><div id="c-mix"></div><div id="l-mix"></div><div id="t-mix"></div></section>
+    <section class="card"><h3>外幣商品占比：銷售中 → 近 12 個月新品</h3><p class="cap">看各家新品是往外幣還是往新臺幣走。</p><div id="c-fx"></div><div id="t-fx"></div></section>
+  </div>
+  <div class="grid2">
+    <section class="card"><h3>條款修正集中的月份</h3><p class="cap">同一天、同一個金管會文號的大量修正＝主管機關要求的全面修正，不是各家策略調整。</p><div id="c-wave"></div><div id="t-wave"></div></section>
+    <section class="card"><h3>最近 180 天新核准的商品</h3><p class="cap">點名稱到競品比較。</p><div id="recent"></div></section>
+  </div>
 
-<h2>市占率：各公司保費與排名</h2>
-<div id="share"></div>
+  <h2 class="sec">需求面：全市場保費收入依險種的趨勢</h2>
+  <p class="sec-sub" id="demand-src"></p>
+  <div id="demand-err"></div>
+  <section class="card"><h3>每月保費收入（最近 24 個月，億元）</h3><p class="cap">滑鼠移到柱子上看各險種與年增率。</p><div id="c-month"></div><div id="l-month"></div><div id="t-month"></div></section>
+  <div class="grid2">
+    <section class="card"><h3 id="h-growth">各險種年增率</h3><p class="cap" id="cap-growth"></p><div id="c-growth"></div><div id="t-growth"></div></section>
+    <section class="card"><h3>各險種占比：去年同期 → 今年</h3><p class="cap">占全部人身保險保費收入的比例。</p><div id="c-share"></div></section>
+  </div>
+  <section class="card"><h3>個人年金占全年保費的比重</h3><p class="cap" id="cap-ann"></p><div id="c-ann"></div><div id="t-ann"></div></section>
+  <section class="card note" id="inv-ref" hidden></section>
+
+  <h2 class="sec">市占率：各公司保費與排名</h2>
+  <section class="card" id="share"></section>
+</main>
 
 <script src="/common.js"></script>
+<script src="/charts.js"></script>
 <script>
+const short = c => (c || "").replace(/^法商/, "");
+const pct = (a, b) => b ? Math.round(a * 100 / b) : 0;
+const ymd = s => /^\d{8}$/.test(s || "") ? `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6)}` : (s || "");
+const yi = v => num(v, 0);
 function compareLink(company, name) {
   return `/compare.html#${new URLSearchParams({ sel: `${company}|${name}` })}`;
 }
-const pct = (a, b) => b ? Math.round(a * 100 / b) + "%" : "—";
+const $ = id => document.getElementById(id);
+const curShort = c => { const n = (c || "").split("/").length; return n > 3 ? `外幣 ${n} 種` : curLabel(c); };
 
-async function loadSupply() {
-  const s = await getJSON("/api/market/supply");
-  const box = document.getElementById("supply");
-  if (!s.as_of) { box.innerHTML = '<p class="muted">還沒有商品資料（先跑 M3 的公司來源與 --parse）。</p>'; return []; }
-  const cos = s.companies.map(c => c.company);
-  const rows = s.companies.map(c => `<tr${c.company === s.self_company ? ' style="font-weight:bold"' : ""}>
-      <td class="nowrap">${esc(c.company)}</td>
-      <td>${c.on_sale}（${c.families} 個系列）</td>
-      <td>${pct(c.foreign, c.on_sale)}</td>
-      <td class="small">${esc(Object.entries(c.lines).map(([l, n]) => `${l} ${n}`).join("、"))}</td>
-      <td>${c.new_12m}（${c.new_families_12m} 個系列）</td>
-      <td>${pct(c.new_12m_foreign, c.new_12m)}</td>
-      <td>${c.revised_12m}</td>
-      <td class="nowrap">${esc(c.latest_approval)}</td></tr>`).join("");
-  const waves = s.revision_waves.map(w => `<tr><td class="nowrap">${esc(w.month)}</td><td>${w.count}</td>
-      <td class="small">${esc(Object.entries(w.companies).map(([c, n]) => `${c} ${n}`).join("、"))}</td>
-      <td class="small">${w.top_doc ? `${esc(w.top_doc[0])}（${w.top_doc[1]} 件）` : '<span class="muted">各自修正</span>'}</td></tr>`).join("");
-  const recent = s.recent.map(p => `<tr><td class="nowrap">${esc(p.first_date)}</td><td class="nowrap">${esc(p.company)}</td>
-      <td><a href="${compareLink(p.company, p.name)}">${esc(p.name)}</a></td><td class="nowrap">${esc(p.line || "")}</td>
-      <td class="nowrap">${esc(curLabel(p.currency))}</td></tr>`).join("");
-  box.innerHTML = `
-    <p class="small muted">資料：各公司依《人身保險業辦理資訊公開管理辦法》公開的商品名稱、日期及文號清單（M3），資料截至 ${esc(s.as_of)}。
-      清單只列現行商品，已停售的不在上面，所以越早的季度越低估；「系列」＝同一商品名稱的新臺幣／外幣、年金／萬能等版本合計一個。</p>
-    <h3 class="small">每季新核准商品數（最近 12 季）</h3>
-    ${stackedBars(s.quarters, "quarter", cos)}
-    <h3 class="small">各家概況（粗體為自家；「近 12 個月」＝${esc(s.from_12m)}～${esc(s.as_of)}）</h3>
-    <table><thead><tr><th>公司</th><th>銷售中商品</th><th>外幣占比</th><th>險種</th><th>近12月新核准</th><th>其中外幣</th><th>近12月修正</th><th>最近核准</th></tr></thead>
-      <tbody>${rows}</tbody></table>
-    <h3 class="small">條款修正集中的月份（看是不是主管機關要求的全面修正）</h3>
-    <table><thead><tr><th>月份</th><th>修正件數</th><th>公司</th><th>同一天的金管會文號</th></tr></thead><tbody>${waves}</tbody></table>
-    <h3 class="small">最近 180 天新核准的商品（點名稱到競品比較）</h3>
-    <div class="scroll"><table><thead><tr><th>核准日</th><th>公司</th><th>商品</th><th>險種</th><th>幣別</th></tr></thead><tbody>${recent}</tbody></table></div>`;
-  return s.conclusions.map(c => `<li>${esc(c)}<span class="small muted">（供給面，來源：各公司法定公開商品清單）</span></li>`);
-}
-
-const ymd = s => /^\d{8}$/.test(s || "") ? `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6)}` : (s || "");
-
-async function loadDemand() {
-  const d = await getJSON("/api/market/demand");
-  const box = document.getElementById("demand");
-  const errs = (d.errors || []).map(e => `<p class="warn">${esc(e)}</p>`).join("");
-  if (!d.as_of) {
-    box.innerHTML = errs + '<p class="muted">還沒有資料。在 Mac 執行 <code>python -m scheduler.run open_data -v</code> 下載後重新整理。</p>';
-    return [];
+// ================================================================ 供給面
+function renderSupply(s) {
+  if (!s.as_of) {
+    $("supply-src").innerHTML = '<span class="warn">還沒有商品資料（先跑 M3 的公司來源與 --parse）。</span>';
+    return;
   }
-  const L = d.lines;
-  const ytd = d.ytd.map(r => `<tr${r.line === "合計" ? ' style="font-weight:bold"' : ""}><td>${esc(r.line)}</td>
-      <td>${num(r.this)}</td><td>${num(r.last)}</td><td>${signed(r.growth)}</td>
-      <td>${r.line === "合計" ? "" : `${r.share_last.toFixed(1)}% → ${r.share.toFixed(1)}%`}</td></tr>`).join("");
-  const ann = d.annual.slice(-10).reverse().map(a => `<tr><td>${a.year}</td><td>${num(a.total)}</td><td>${signed(a.yoy)}</td>
-      ${L.map(l => `<td>${num(a[l])}</td>`).join("")}<td>${a.annuity_share}%</td></tr>`).join("");
-  const ref = d.investment_ref;
-  const refHtml = ref ? `<h3 class="small">投資型的參考值（壽險公會「壽險業績統計」，政府資料開放平臺 14539）</h3>
-    <p class="small">這個資料集只有一期，公告日期 ${esc(ymd(ref.announced))}，之後沒再更新：${esc(ref.summary || "")}。
-      太舊，只當參考；<a href="${esc(ref.raw)}">原始檔</a></p>` : "";
-  box.innerHTML = errs + `
-    <p class="small muted">資料：${esc(d.source.name)}，資料到 ${esc(d.as_of)}（公告 ${esc(ymd(d.announced))}），單位：億元。
-      <a href="${esc(d.source.raw)}">原始檔</a>｜<a href="${esc(d.source.url || "#")}">下載來源</a><br>
-      注意：這是「保費收入」，包含續期保費，不只新契約；而且只分險種、不分投資型（變額年金算在個人年金、投資型壽險算在個人壽險），也沒有公司別。</p>
-    <h3 class="small">每月保費收入（最近 24 個月，依險種）</h3>
-    ${stackedBars(d.monthly, "month", L, { fmt: v => num(v), totals: false, padLeft: 48,
-        xfmt: (m, i) => (i % 3 === 0 || i === d.monthly.length - 1) ? m.slice(2).replace("-", "/") : "" })}
-    <h3 class="small">${esc(d.ytd_label)} vs ${esc(d.ytd_last_label)}</h3>
-    <table><thead><tr><th>險種</th><th>今年（億元）</th><th>去年同期</th><th>年增</th><th>占比（去年→今年）</th></tr></thead><tbody>${ytd}</tbody></table>
-    <h3 class="small">最近 10 年全年保費收入（億元）</h3>
-    <table><thead><tr><th>年</th><th>合計</th><th>年增</th>${L.map(l => `<th>${esc(l)}</th>`).join("")}<th>年金占比</th></tr></thead><tbody>${ann}</tbody></table>
-    ${refHtml}`;
-  return d.conclusions.map(c => `<li>${esc(c)}<span class="small muted">（需求面，來源：保險事業發展中心 人身保險業保費收入）</span></li>`);
+  $("supply-src").textContent = `資料：各公司依《人身保險業辦理資訊公開管理辦法》公開的商品名稱、日期及文號清單，資料截至 ${s.as_of}；`
+    + `「近 12 個月」＝${s.from_12m}～${s.as_of}；「系列」＝同一商品名稱的新臺幣／外幣、年金／萬能等版本合計一個。`;
+  const cos = s.companies.map(c => c.company);
+  const coColor = Object.fromEntries(cos.map((c, i) => [c, SERIES[i]]));
+  const me = s.self_company;
+
+  // 1. 近 12 個月新核准（強調自家，其他灰）
+  const byNew = [...s.companies].sort((a, b) => b.new_12m - a.new_12m);
+  $("cap-new").textContent = `藍色為${short(me)}，其他公司為灰色；數字後括號為系列數。`;
+  hbars($("c-new"), byNew.map(c => ({
+    label: short(c.company), value: c.new_12m, strong: c.company === me,
+    color: c.company === me ? SERIES[0] : DEEMPH, text: `${c.new_12m}（${c.new_families_12m} 系列）`,
+    tip: { head: c.company, rows: [{ label: "個新核准商品", value: String(c.new_12m), color: c.company === me ? SERIES[0] : DEEMPH },
+                                   { label: "個系列", value: String(c.new_families_12m) },
+                                   { label: "個外幣商品", value: String(c.new_12m_foreign) }] },
+  })), { id: "new", valueW: 110 });
+  $("t-new").innerHTML = tableView(["公司", "銷售中商品", "系列", "近12月新核准", "系列", "近12月修正", "最近核准"],
+    s.companies.map(c => [esc(c.company), c.on_sale, c.families, c.new_12m, c.new_families_12m, c.revised_12m, esc(c.latest_approval)]));
+
+  // 2. 每季新核准（依公司堆疊，顏色跟著公司走）
+  columns($("c-q"), s.quarters, cos, { id: "q", key: "quarter", totals: "all", padLeft: 32,
+    xfmt: q => q.replace("Q", " Q"),
+    tip: (r, t) => ({ head: r.quarter, rows: [{ label: "合計", value: String(t) },
+      ...cos.filter(c => r[c]).map(c => ({ label: c, value: String(r[c]), color: coColor[c] }))] }) });
+  $("l-q").innerHTML = legend(cos.map(c => [short(c), coColor[c]]));
+  $("t-q").innerHTML = tableView(["季度", ...cos.map(short), "合計"],
+    s.quarters.map(q => [q.quarter, ...cos.map(c => q[c] || 0), cos.reduce((a, c) => a + (q[c] || 0), 0)]));
+
+  // 3. 險種結構（100% 堆疊）
+  const lines = ["變額年金保險", "變額萬能壽險", "變額壽險"];
+  const others = [...new Set(s.companies.flatMap(c => Object.keys(c.lines)))].filter(l => !lines.includes(l));
+  const mixSeries = [...lines, ...(others.length ? ["其他"] : [])];
+  const mixColors = [SERIES[1], SERIES[2], SERIES[3], DEEMPH];
+  stack100($("c-mix"), s.companies.map(c => {
+    const parts = { ...c.lines };
+    if (others.length) parts["其他"] = others.reduce((a, l) => a + (c.lines[l] || 0), 0);
+    return { label: short(c.company), parts, note: `${c.on_sale} 個`, strong: c.company === me };
+  }), mixSeries, { id: "mix", colors: mixColors, ink: ["#0b0b0b", "#0b0b0b", "#0b0b0b", "#0b0b0b"] });
+  $("l-mix").innerHTML = legend(mixSeries.map((l, i) => [l, mixColors[i]]));
+  $("t-mix").innerHTML = tableView(["公司", ...mixSeries, "合計"], s.companies.map(c => [esc(c.company),
+    ...mixSeries.map(l => l === "其他" ? others.reduce((a, o) => a + (c.lines[o] || 0), 0) : (c.lines[l] || 0)), c.on_sale]));
+
+  // 4. 外幣占比：銷售中 → 近 12 月新品
+  dumbbell($("c-fx"), s.companies.map(c => ({ label: short(c.company), a: pct(c.foreign, c.on_sale),
+    b: pct(c.new_12m_foreign, c.new_12m), strong: c.company === me, color: c.company === me ? SERIES[0] : "var(--ink2)" })),
+    { id: "fx", fmt: v => v + "%", max: 100, aName: "銷售中商品", bName: "近 12 個月新品（藍色為自家）", color: "var(--ink2)" });
+  $("t-fx").innerHTML = tableView(["公司", "銷售中外幣／全部", "占比", "近12月新品外幣／全部", "占比"], s.companies.map(c =>
+    [esc(c.company), `${c.foreign}／${c.on_sale}`, pct(c.foreign, c.on_sale) + "%", `${c.new_12m_foreign}／${c.new_12m}`, c.new_12m ? pct(c.new_12m_foreign, c.new_12m) + "%" : "—"]));
+
+  // 5. 修正潮（依件數橫條；同一文號的件數放提示與表格）
+  const waves = [...s.revision_waves].sort((a, b) => a.month < b.month ? 1 : -1);
+  hbars($("c-wave"), s.revision_waves.map(w => ({
+    label: w.month, value: w.count, color: w.top_doc ? "var(--ink2)" : DEEMPH,
+    text: `${w.count} 件${w.top_doc ? `，${w.top_doc[1]} 件同一文號` : ""}`,
+    tip: { head: `${w.month}：${w.count} 件修正`, rows: [
+      ...Object.entries(w.companies).map(([c, n]) => ({ label: c, value: String(n), color: coColor[c] })),
+      ...(w.top_doc ? [{ label: `同一天的 ${w.top_doc[0]}`, value: `${w.top_doc[1]} 件` }] : [])] },
+  })), { id: "wave", labelW: 76, valueW: 160 });
+  $("t-wave").innerHTML = legend([["有同一天的金管會文號（全面修正）", "var(--ink2)"], ["各自修正", DEEMPH]])
+    + tableView(["月份", "修正件數", "公司", "同一天的金管會文號"], waves.map(w => [w.month, w.count,
+      esc(Object.entries(w.companies).map(([c, n]) => `${short(c)} ${n}`).join("、")),
+      w.top_doc ? `${esc(w.top_doc[0])}（${w.top_doc[1]} 件）` : '<span class="muted">各自修正</span>']));
+
+  // 6. 最近 180 天新品
+  $("recent").innerHTML = `<div class="tv-wrap tall"><table><thead><tr><th>核准日</th><th>公司</th><th>商品</th><th>險種</th><th>幣別</th></tr></thead><tbody>${
+    s.recent.map(p => `<tr><td class="nowrap">${esc(p.first_date)}</td><td class="nowrap"><span class="sw" style="background:${coColor[p.company]}"></span>${esc(short(p.company))}</td>
+      <td><a href="${compareLink(p.company, p.name)}">${esc(p.name.replace(p.company, ""))}</a></td><td class="nowrap">${esc(p.line || "")}</td>
+      <td>${esc(curShort(p.currency))}</td></tr>`).join("")}</tbody></table></div>`;
 }
 
-function shareGap() {
-  document.getElementById("share").innerHTML = `
-    <p>還沒有公司別資料。原本規劃的「人身保險業保費收入統計表（月報）」（104113）下載後確認是<b>全市場依險種</b>的統計，沒有公司別，已改用在上面的需求面。</p>
-    <p class="small">待確認的公司別來源（要先看實際檔案與 robots.txt 才能決定）：</p>
+// ================================================================ 需求面
+function renderDemand(d) {
+  $("demand-err").innerHTML = (d.errors || []).map(e => `<p class="warn">${esc(e)}</p>`).join("");
+  if (!d.as_of) {
+    $("demand-src").innerHTML = '還沒有資料。在 Mac 執行 <code>python -m scheduler.run open_data -v</code> 下載後重新整理。';
+    document.querySelectorAll("#c-month, #c-growth, #c-share, #c-ann").forEach(e => e.closest(".card").hidden = true);
+    return;
+  }
+  const L = d.lines, lc = Object.fromEntries(L.map((l, i) => [l, SERIES[i]]));
+  $("demand-src").innerHTML = `資料：${esc(d.source.name)}，資料到 ${esc(d.as_of)}（公告 ${esc(ymd(d.announced))}）。`
+    + `<a href="${esc(d.source.raw)}">原始檔</a>｜<a href="${esc(d.source.url || "#")}">下載來源</a><br>`
+    + `注意：這是「保費收入」，包含續期保費，不只新契約；只分險種、不分投資型（變額年金算在個人年金、投資型壽險算在個人壽險），也沒有公司別。`;
+
+  // 1. 每月（依險種堆疊）
+  columns($("c-month"), d.monthly, L, { id: "m", key: "month", totals: "last", padLeft: 52, height: 260,
+    fmt: v => yi(v),
+    xfmt: (m, i) => ((d.monthly.length - 1 - i) % 3 === 0) ? m.replace("-", "/") : "",
+    tip: r => ({ head: `${r.month}（年增 ${signed(r.yoy)}）`, rows: [{ label: "億元 合計", value: yi(r.total) },
+      ...[...L].reverse().map(l => ({ label: l, value: yi(r[l]), color: lc[l] }))] }) });
+  $("l-month").innerHTML = legend(L.map(l => [l, lc[l]]));
+  $("t-month").innerHTML = tableView(["月份", "合計", "年增", ...L], [...d.monthly].reverse().map(m =>
+    [m.month, yi(m.total), signed(m.yoy), ...L.map(l => yi(m[l]))]), "單位：億元");
+
+  // 2. 年增率（強調成長最快的險種）
+  const ytd = d.ytd.filter(r => r.line !== "合計"), tot = d.ytd.find(r => r.line === "合計");
+  const fast = ytd.reduce((a, b) => (b.growth ?? -1e9) > (a.growth ?? -1e9) ? b : a, ytd[0]);
+  $("h-growth").textContent = `各險種年增率（${d.ytd_label} vs 去年同期）`;
+  $("cap-growth").textContent = `合計 ${yi(tot.this)} 億元，${signed(tot.growth)}。`;
+  hbars($("c-growth"), ytd.map(r => ({ label: r.line, value: r.growth ?? 0, strong: r === fast,
+    color: r === fast ? lc[r.line] : DEEMPH, text: signed(r.growth),
+    tip: { head: r.line, rows: [{ label: "年增", value: signed(r.growth), color: lc[r.line] },
+      { label: `億元（${d.ytd_label}）`, value: yi(r.this) }, { label: "億元（去年同期）", value: yi(r.last) }] } })),
+    { id: "g", labelW: 76, valueW: 64 });
+  $("t-growth").innerHTML = tableView(["險種", `${d.ytd_label}（億元）`, "去年同期", "年增", "占比（去年→今年）"],
+    d.ytd.map(r => [esc(r.line), yi(r.this), yi(r.last), signed(r.growth), r.line === "合計" ? "" : `${r.share_last.toFixed(1)}% → ${r.share.toFixed(1)}%`]));
+
+  // 3. 占比變化
+  dumbbell($("c-share"), ytd.map(r => ({ label: r.line, a: r.share_last, b: r.share, strong: r === fast, color: lc[r.line] })),
+    { id: "sh", labelW: 76, fmt: v => `${(+v).toFixed(1)}%`, tickFmt: v => `${v}%`, aName: "去年同期", bName: d.ytd_label, color: "var(--ink2)" });
+
+  // 4. 個人年金占比（長期）
+  const ann = d.annual, last10 = ann.slice(-10);
+  const avg = last10.reduce((a, x) => a + x.annuity_share, 0) / last10.length;
+  const nowShare = d.ytd.find(r => r.line === "個人年金").share;
+  $("cap-ann").textContent = `${ann[0].year}–${ann[ann.length - 1].year} 每年全年；空心點是 ${d.ytd_label}（只有半年，季節性可能影響）。灰線是最近 10 年平均。`;
+  line($("c-ann"), ann.map(a => ({ x: String(a.year), y: a.annuity_share, label: `${a.year} 年` })),
+    { id: "ann", fmt: v => `${(+v).toFixed(v % 1 ? 1 : 0)}%`, name: "個人年金占比", color: lc["個人年金"], xEvery: 4,
+      ref: { y: +avg.toFixed(1), from: ann.length - last10.length, label: `${last10[0].year}–${last10[last10.length - 1].year} 平均 ${avg.toFixed(1)}%` },
+      extra: { x: d.ytd_label.replace(" 年 ", " ").replace(" 月", "月"), y: nowShare, label: "今年累計" } });
+  $("t-ann").innerHTML = tableView(["年", "合計（億元）", "年增", ...L, "年金占比"], [...ann].reverse().map(a =>
+    [a.year, yi(a.total), signed(a.yoy), ...L.map(l => yi(a[l])), a.annuity_share + "%"]));
+
+  // 5. 投資型參考值
+  const ref = d.investment_ref;
+  if (ref) {
+    $("inv-ref").hidden = false;
+    $("inv-ref").innerHTML = `<h3>投資型的參考值（壽險公會「壽險業績統計」，政府資料開放平臺 14539）</h3>
+      <p>這個資料集只有一期，公告日期 ${esc(ymd(ref.announced))}，之後沒再更新：<b>${esc(ref.summary || "")}</b>。太舊，只當參考。<a href="${esc(ref.raw)}">原始檔</a></p>`;
+  }
+}
+
+// ================================================================ 數字卡、結論、市占率
+function renderKpis(s, d) {
+  const tiles = [];
+  if (s.as_of) {
+    const me = s.companies.find(c => c.company === s.self_company);
+    const rank = [...s.companies].sort((a, b) => b.new_12m - a.new_12m).findIndex(c => c.company === s.self_company) + 1;
+    const total = s.companies.reduce((a, c) => a + c.new_12m, 0);
+    const tf = s.companies.reduce((a, c) => a + c.new_12m_foreign, 0);
+    if (me) tiles.push(statTile({ label: `${short(me.company)}近 12 個月新核准`, value: me.new_12m, unit: " 個",
+      delta: `${s.companies.length} 家中第 ${rank}`, deltaGood: rank === 1, sub: `${me.new_families_12m} 個系列；銷售中 ${me.on_sale} 個`, src: `供給面｜截至 ${s.as_of}` }));
+    tiles.push(statTile({ label: `${s.companies.length} 家近 12 個月新核准`, value: total, unit: " 個",
+      sub: `外幣商品占 ${pct(tf, total)}%`, src: `供給面｜截至 ${s.as_of}` }));
+  }
+  if (d.as_of) {
+    const tot = d.ytd.find(r => r.line === "合計"), an = d.ytd.find(r => r.line === "個人年金");
+    tiles.push(statTile({ label: `${d.ytd_label}人身保險保費收入`, value: yi(tot.this), unit: " 億",
+      delta: `${signed(tot.growth)} vs 去年同期`, deltaGood: tot.growth >= 0, sub: "含續期保費", src: `需求面｜資料到 ${d.as_of}` }));
+    tiles.push(statTile({ label: `${d.ytd_label}個人年金保費`, value: yi(an.this), unit: " 億",
+      delta: `${signed(an.growth)} vs 去年同期`, deltaGood: an.growth >= 0, sub: `占比 ${an.share_last.toFixed(1)}% → ${an.share.toFixed(1)}%`, src: `需求面｜資料到 ${d.as_of}` }));
+  }
+  $("kpis").innerHTML = tiles.join("");
+}
+
+function renderConclusions(s, d) {
+  const item = (tag, text, src) => `<li><span class="tag tag-${tag === "供給面" ? "s" : tag === "需求面" ? "d" : "m"}">${tag}</span>
+    <span>${esc(text)}<span class="src">來源：${esc(src)}</span></span></li>`;
+  $("conclusions").innerHTML = (s.conclusions || []).map(c => item("供給面", c, "各公司法定公開商品清單")).join("")
+    + (d.conclusions || []).map(c => item("需求面", c, "保險事業發展中心 人身保險業保費收入")).join("")
+    + `<li><span class="tag tag-m">市占率</span><span class="muted">還沒有公司別資料（見最下方）。</span></li>`;
+}
+
+function renderShareGap() {
+  $("share").innerHTML = `
+    <p><b>還沒有公司別資料。</b>原本規劃的「人身保險業保費收入統計表（月報）」（104113）下載後確認是全市場依險種的統計，沒有公司別，已改用在上面的需求面。</p>
+    <p class="small muted">待確認的公司別來源（要先看實際檔案與 robots.txt 才能決定）：</p>
     <ul class="small">
       <li>政府資料開放平臺 7191「壽險財務業務指標」、13517「保險業保費收入統計表」：在 Mac 執行
         <code>python scripts/probe_open_data.py 7191 13517</code> 看欄位有沒有公司別</li>
@@ -114,10 +244,12 @@ function shareGap() {
 
 (async () => {
   await renderNav("market");
-  const [sup, dem] = await Promise.all([loadSupply(), loadDemand()]);
-  shareGap();
-  document.getElementById("conclusions").innerHTML = sup.join("") + dem.join("")
-    + '<li class="muted">市占率：還沒有公司別資料（見下方）。</li>';
+  const [s, d] = await Promise.all([getJSON("/api/market/supply"), getJSON("/api/market/demand")]);
+  renderKpis(s, d);
+  renderConclusions(s, d);
+  renderSupply(s);
+  renderDemand(d);
+  renderShareGap();
 })();
 </script>
 </body>

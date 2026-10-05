@@ -128,6 +128,8 @@ def test_market_supply(site):
     assert (c["on_sale"], c["families"], c["foreign"]) == (1, 1, 1)
     assert s["revision_waves"][0]["month"] == "2025-01" and s["conclusions"]
     assert get(base, "/market.html")[0] == 200
+    status, ctype, body = get(base, "/charts.js")
+    assert status == 200 and "javascript" in ctype and b"function columns" in body
 
 
 def test_market_demand(site):

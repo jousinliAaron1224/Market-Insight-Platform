@@ -37,3 +37,89 @@ button { font-size: 14px; }
 .detail > div { margin: 4px 0; }
 .namegrid { columns: 2; column-gap: 16px; max-height: 260px; overflow: auto; font-size: 12px; }
 .namegrid a { display: block; }
+
+/* ---------------- 市場數據（儀表板排版＋圖表）---------------- */
+:root {
+  --surface: #fcfcfb; --page: #f4f3ef; --ink: #0b0b0b; --ink2: #52514e; --muted: #898781;
+  --grid: #e1e0d9; --axis: #c3c2b7; --deemph: #b4b2aa; --border: rgba(11, 11, 11, .10);
+  --good: #006300; --bad: #b42323;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4;
+}
+body.dash { background: var(--page); margin: 0; }
+body.dash nav { background: var(--surface); padding: 10px 16px; margin: 0; }
+body.dash .banner { margin: 12px 16px; }
+.wrap { max-width: 1240px; margin: 0 auto; padding: 8px 16px 48px; }
+.page-h h1 { font-size: 22px; margin: 16px 0 4px; }
+.page-h p { margin: 0 0 16px; max-width: 900px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; margin-bottom: 16px; min-width: 0; }
+.card h2 { font-size: 16px; margin: 0 0 10px; }
+.card h3 { font-size: 14px; margin: 0 0 2px; }
+.card .cap { font-size: 12px; color: var(--muted); margin: 0 0 10px; }
+.card.note { background: #fbf8ee; }
+.card.note p { margin: 6px 0 0; }
+h2.sec { font-size: 18px; margin: 32px 0 4px; padding-top: 4px; }
+.sec-sub { font-size: 12px; color: var(--ink2); margin: 0 0 12px; max-width: 1000px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+@media (max-width: 900px) { .grid2 { grid-template-columns: 1fr; } }
+
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.st { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+.st-label { font-size: 12px; color: var(--ink2); }
+.st-value { font-size: 30px; font-weight: 600; line-height: 1.2; margin-top: 4px; }
+.st-unit { font-size: 14px; font-weight: 400; color: var(--ink2); }
+.st-delta { font-size: 13px; font-weight: 600; color: var(--ink2); margin-top: 2px; }
+.st-delta.good { color: var(--good); }
+.st-delta.bad { color: var(--bad); }
+.st-sub { font-size: 12px; color: var(--ink2); margin-top: 2px; }
+.st-src { font-size: 11px; color: var(--muted); margin-top: 6px; }
+
+.conc { list-style: none; padding: 0; margin: 0; }
+.conc li { display: flex; gap: 10px; align-items: baseline; padding: 7px 0; border-top: 1px solid var(--grid); }
+.conc li:first-child { border-top: 0; }
+.conc .src { display: block; font-size: 11px; color: var(--muted); }
+.tag { flex: none; font-size: 11px; padding: 1px 7px; border-radius: 10px; border: 1px solid var(--axis); color: var(--ink2); background: #fff; }
+.tag-s { border-color: #9ec5f4; background: #eef5fd; }
+.tag-d { border-color: #f3b79e; background: #fdf1ec; }
+
+/* 圖表 */
+.card svg { display: block; overflow: visible; font-family: inherit; }
+.card svg .grid { stroke: var(--grid); stroke-width: 1; }
+.card svg .base { stroke: var(--axis); stroke-width: 1; }
+.card svg .ref { stroke: var(--muted); stroke-width: 1; }
+.card svg .tick { font-size: 11px; fill: var(--muted); font-variant-numeric: tabular-nums; }
+.card svg .lab { font-size: 13px; fill: var(--ink2); }
+.card svg .val { font-size: 12px; fill: var(--ink2); }
+.card svg .strong { fill: var(--ink); font-weight: 600; }
+.card svg .in { font-size: 11px; font-weight: 600; }
+.card svg .conn { stroke: var(--axis); stroke-width: 2; stroke-linecap: round; }
+.card svg .dot-a { fill: var(--surface); stroke: var(--deemph); stroke-width: 2; }
+.card svg .dot-b, .card svg .ring { stroke: var(--surface); stroke-width: 2; }
+.card svg .ln { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.card svg .hit { fill: transparent; cursor: default; outline: none; }
+.card svg .hit:hover, .card svg .hit:focus { fill: rgba(11, 11, 11, .045); }
+.card svg .xh { stroke: var(--axis); stroke-width: 1; visibility: hidden; }
+.card svg .xh-g:hover .xh, .card svg .xh-g:focus-within .xh { visibility: visible; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12px; color: var(--ink2); margin-top: 8px; }
+.lg { display: inline-flex; align-items: center; gap: 6px; }
+.lg-k.rect { width: 10px; height: 10px; border-radius: 2px; }
+.lg-k.dot { width: 10px; height: 10px; border-radius: 50%; }
+.lg-k.ring { width: 7px; height: 7px; border-radius: 50%; border: 2px solid var(--deemph); }
+.sw { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; }
+
+.tip { position: fixed; z-index: 10; display: none; pointer-events: none; background: var(--surface); border: 1px solid var(--border);
+       border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,.12); padding: 8px 10px; font-size: 12px; min-width: 150px; }
+.tip-h { color: var(--ink2); margin-bottom: 4px; }
+.tip-r { display: flex; align-items: center; gap: 6px; line-height: 1.6; }
+.tip-k { width: 10px; height: 2px; border-radius: 1px; flex: none; }
+.tip-r b { font-variant-numeric: tabular-nums; color: var(--ink); }
+.tip-l { color: var(--ink2); }
+
+details.tv { margin-top: 10px; font-size: 12px; }
+details.tv summary { cursor: pointer; color: var(--ink2); }
+.tv-wrap { overflow: auto; max-height: 360px; margin-top: 6px; border: 1px solid var(--grid); border-radius: 6px; }
+.tv-wrap.tall { max-height: 420px; margin-top: 0; }
+.tv-wrap table { min-width: 520px; }
+.dash table { font-size: 12px; background: var(--surface); }
+.dash th, .dash td { border: 0; border-bottom: 1px solid var(--grid); padding: 5px 8px; font-variant-numeric: tabular-nums; }
+.dash th { background: #f1f0eb; color: var(--ink2); font-weight: 600; }
+.dash code { background: #efeee9; padding: 1px 4px; border-radius: 4px; }
