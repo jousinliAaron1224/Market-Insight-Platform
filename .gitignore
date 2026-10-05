@@ -10,5 +10,6 @@ data/raw/*
 data/snapshots/
 data/replay/
 data/site/
+data/site_export.tgz
 .DS_Store
 .Rhistory
