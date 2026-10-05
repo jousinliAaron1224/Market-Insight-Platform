@@ -162,20 +162,35 @@ function hbars(box, items, opts) {
   chart(box, W => {
     const rowH = opts.rowH || 30, lw = Math.min(opts.labelW || 112, W < 520 ? 92 : 999), vw = opts.valueW || 96;
     const H = items.length * rowH + 6;
-    const min = Math.min(0, ...items.map(i => i.value)), max = Math.max(0, ...items.map(i => i.value));
+    const refV = opts.ref ? [opts.ref.value] : [];
+    const vals = [...items.map(i => i.value), ...refV];
+    // dots：零不是有意義的起點時（例如繼續率 80–95%）改畫點，軸只涵蓋資料範圍，不用長條（長條必須從 0 起算）
+    let min = opts.dots ? Math.floor(Math.min(...vals) - 1) : Math.min(0, ...vals);
+    let max = opts.dots ? Math.ceil(Math.max(...vals) + 1) : Math.max(0, ...vals);
     const span = (max - min) || 1, plotW = W - lw - vw;
     const x = v => lw + plotW * (v - min) / span;
-    let g = `<line x1="${x(0)}" x2="${x(0)}" y1="0" y2="${H}" class="base"/>`;
+    const top = opts.ref ? 16 : 0;
+    let g = opts.dots ? "" : `<line x1="${x(0)}" x2="${x(0)}" y1="${top}" y2="${H + top}" class="base"/>`;
+    if (opts.ref) g += `<line x1="${x(opts.ref.value)}" x2="${x(opts.ref.value)}" y1="${top - 2}" y2="${H + top}" class="ref-v"/>`
+      + `<text x="${x(opts.ref.value)}" y="${top - 5}" class="tick" text-anchor="middle">${esc(opts.ref.label)}</text>`;
     items.forEach((it, i) => {
-      const y0 = i * rowH + 3, bh = Math.min(18, rowH - 10), by = y0 + (rowH - bh) / 2;
+      const y0 = i * rowH + 3 + top, bh = Math.min(18, rowH - 10), by = y0 + (rowH - bh) / 2, cy = by + bh / 2;
       const a = x(Math.min(0, it.value)), b = x(Math.max(0, it.value));
-      g += `<text x="${lw - 8}" y="${by + bh / 2 + 4}" class="lab${it.strong ? " strong" : ""}" text-anchor="end">${esc(it.label)}</text>`
-        + `<path d="${barPath(a, by, b - a, bh, 4, it.value < 0)}" fill="${it.color || SERIES[0]}"/>`
-        + `<text x="${(it.value < 0 ? x(0) : b) + 6}" y="${by + bh / 2 + 4}" class="val${it.strong ? " strong" : ""}">${esc(it.text ?? fmt(it.value))}</text>`;
+      g += `<text x="${lw - 8}" y="${cy + 4}" class="lab${it.strong ? " strong" : ""}" text-anchor="end">${esc(it.label)}</text>`;
+      if (opts.dots) {
+        g += `<line x1="${lw}" x2="${lw + plotW}" y1="${cy}" y2="${cy}" class="grid"/>`
+          + `<circle cx="${x(it.value)}" cy="${cy}" r="5.5" fill="${it.color || SERIES[0]}" class="ring"/>`
+          + `<text x="${lw + plotW + 8}" y="${cy + 4}" class="val${it.strong ? " strong" : ""}">${esc(it.text ?? fmt(it.value))}</text>`;
+      } else {
+        g += `<path d="${barPath(a, by, b - a, bh, 4, it.value < 0)}" fill="${it.color || SERIES[0]}"/>`
+          + `<text x="${(it.value < 0 ? x(0) : b) + 6}" y="${cy + 4}" class="val${it.strong ? " strong" : ""}">${esc(it.text ?? fmt(it.value))}</text>`;
+      }
       const tip = Tip.set(`${opts.id}:${i}`, it.tip || { head: it.label, rows: [{ label: opts.unit || "", value: fmt(it.value), color: it.color || SERIES[0] }] });
       g += `<rect class="hit" x="0" y="${y0}" width="${W}" height="${rowH}" data-tip="${tip}" tabindex="0"/>`;
     });
-    return `<svg width="${W}" height="${H}" role="img">${g}</svg>`;
+    if (opts.dots) g += `<text x="${lw}" y="${H + top + 12}" class="tick">${esc(fmt(min))}</text>`
+      + `<text x="${lw + plotW}" y="${H + top + 12}" class="tick" text-anchor="end">${esc(fmt(max))}</text>`;
+    return `<svg width="${W}" height="${H + top + (opts.dots ? 16 : 0)}" role="img">${g}</svg>`;
   });
 }
 

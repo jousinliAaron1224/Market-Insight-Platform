@@ -36,8 +36,9 @@ def site(tmp_path_factory):
          "first_date": "2023-08-14", "latest_date": "2025-01-01", "clause_url": "https://x/c.pdf"}, "pdf")
     db.conn.execute("INSERT INTO products (company, name, line, currency, status) VALUES (?,?,?,?, 'on_sale')",
                     ("凱基人壽", NAME, "變額年金保險", "USD"))
-    for name, f in (("ib_premium_monthly", "tii_i10_trimmed.csv"), ("lia_performance", "lia_14539.csv")):
-        add(db, raw, "open_data", f"{name}:0", "csv", fixture_bytes("open_data", f),
+    for name, f in (("ib_premium_monthly", "tii_i10_trimmed.csv"), ("lia_performance", "lia_14539.csv"),
+                    ("life_indicators", "ib_7191_synthetic.json")):
+        add(db, raw, "open_data", f"{name}:0", f.rsplit(".", 1)[1], fixture_bytes("open_data", f),
             {"title": name, "dataset": name, "final_url": "https://example.org/x.csv",
              "event_extra": {"dataset": name}}, "csv")
     db.conn.commit()
@@ -141,6 +142,17 @@ def test_market_demand(site):
     assert "個人年金" in d["conclusions"][1] and "+103.6%" in d["conclusions"][1]
     assert d["investment_ref"]["summary"].startswith("初年度保費投資型 2,760 億元")
     assert get(base, d["source"]["raw"])[0] == 200
+
+
+def test_market_companies(site):
+    _, base, _ = site
+    c = json.loads(get(base, "/api/market/companies")[2])
+    assert c["period"] == "2026Q2" and c["n_companies"] == 8 and not c["errors"]
+    assert c["matched"]["凱基人壽"] == "凱基人壽保險股份有限公司"            # 測試資料庫只有凱基的商品＋自家
+    ind = {i["name"]: i for i in c["indicators"]}
+    assert ind["保費收入變動率"]["values"]["凱基人壽"] == {"value": 10.0, "rank": 4}
+    assert ind["新契約費用率"]["n"] == 7                                   # N/A 不算
+    assert len(c["growth_trend"]) == 2
 
 
 def test_family_names():

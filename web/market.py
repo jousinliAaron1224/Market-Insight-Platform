@@ -261,3 +261,97 @@ def _investment_ref(rows: list[dict[str, Any]]) -> dict[str, Any]:
         res["summary"] = (f"初年度保費投資型 {_yi(inv['this']):,.0f} 億元（{inv['growth']:+.1f}%），"
                           f"占初年度保費 {share:.1f}%")
     return res
+
+
+# ====================================================================== 公司比較（7191 壽險財務業務指標）
+COMPANY_INDICATORS = [   # (指標, 說明, 越高越好？)
+    ("保費收入變動率", "保費收入比去年同期的變動", True),
+    ("初年度保費比率", "初年度（新契約）保費占保費收入的比例", None),
+    ("繼續率(十三個月)", "保單第 13 個月仍有效的比例，看銷售品質", True),
+    ("繼續率(二十五個月)", "保單第 25 個月仍有效的比例", True),
+    ("新契約費用率", "新契約費用占初年度保費的比例，看取得成本", False),
+    ("業主權益報酬率", "ROE", True),
+]
+
+
+def _norm_co(name: str) -> str:
+    s = (name or "").replace("臺", "台")
+    for t in ("保險股份有限公司", "股份有限公司", "台灣分公司", "分公司"):
+        s = s.replace(t, "")
+    return s.strip()
+
+
+def _median(xs: list[float]) -> float | None:
+    xs = sorted(xs)
+    if not xs:
+        return None
+    n = len(xs)
+    return xs[n // 2] if n % 2 else (xs[n // 2 - 1] + xs[n // 2]) / 2
+
+
+def companies(conn, read_raw, self_company: str | None = None) -> dict[str, Any]:
+    from parsers.open_data import parse_ib_7191
+
+    out: dict[str, Any] = {"period": None, "indicators": [], "conclusions": [], "errors": []}
+    src = _latest_open_data(conn, "life_indicators")
+    if not src:
+        return out
+    try:
+        rows = parse_ib_7191(read_raw(src["raw_path"]))
+    except Exception as e:
+        out["errors"].append(f"壽險財務業務指標解析失敗：{e}")
+        return out
+    tracked = [r["company"] for r in conn.execute("SELECT DISTINCT company FROM product_terms")] \
+        if "product_terms" in {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")} else []
+    if self_company and self_company not in tracked:
+        tracked.insert(0, self_company)
+    tracked.sort(key=lambda c: (c != self_company, c))
+    norm = {_norm_co(c): c for c in tracked}
+
+    def ours(name):
+        n = _norm_co(name)
+        return norm.get(n) or next((c for k, c in norm.items() if n.startswith(k) or k.startswith(n)), None)
+
+    periods = sorted({r["period"] for r in rows})
+    latest = periods[-1]
+    cur = [r for r in rows if r["period"] == latest]
+    out.update(period=latest, periods=periods, n_companies=len(cur), companies=tracked,
+               matched={c: next((r["company"] for r in cur if ours(r["company"]) == c), None) for c in tracked},
+               source={"name": "金管會保險局 保險業公開資訊觀測站「壽險財務業務指標」（政府資料開放平臺 7191）",
+                       "url": src["meta"].get("final_url"), "raw": f"/{src['raw_path']}", "fetched_at": src["fetched_at"]})
+    for name, desc, higher_good in COMPANY_INDICATORS:
+        allv = [(r["company"], r["values"].get(name)) for r in cur if r["values"].get(name) is not None]
+        if not allv:
+            continue
+        med = _median([v for _, v in allv])
+        ranked = sorted(allv, key=lambda x: x[1] if higher_good is False else -x[1])   # 第 1 名＝最好
+        vals = {}
+        for c in tracked:
+            hit = next(((rc, v) for rc, v in allv if ours(rc) == c), None)
+            if hit:
+                vals[c] = {"value": hit[1], "rank": [rc for rc, _ in ranked].index(hit[0]) + 1}
+        out["indicators"].append({"name": name, "desc": desc, "higher_good": higher_good, "median": med,
+                                  "n": len(allv), "values": vals})
+    # 保費收入變動率的歷史（若檔案有多期）
+    if len(periods) > 1:
+        out["growth_trend"] = [{"period": p, **{c: next((r["values"].get("保費收入變動率") for r in rows
+                                                       if r["period"] == p and ours(r["company"]) == c), None) for c in tracked}}
+                               for p in periods]
+    out["conclusions"] = company_conclusions(out, self_company)
+    return out
+
+
+def company_conclusions(d: dict[str, Any], self_co: str | None) -> list[str]:
+    out = []
+    ind = {i["name"]: i for i in d["indicators"]}
+    me = lambda n: (ind.get(n) or {}).get("values", {}).get(self_co)
+    g = me("保費收入變動率")
+    if g:
+        i = ind["保費收入變動率"]
+        out.append(f"{d['period']} {self_co}保費收入變動率 {g['value']:+.1f}%，在 {i['n']} 家壽險公司中排第 {g['rank']}"
+                   f"（業界中位數 {i['median']:+.1f}%）。")
+    k13, k25 = me("繼續率(十三個月)"), me("繼續率(二十五個月)")
+    if k13 and k25:
+        out.append(f"{self_co}繼續率：13 個月 {k13['value']:.1f}%、25 個月 {k25['value']:.1f}%"
+                   f"（業界中位數 {ind['繼續率(十三個月)']['median']:.1f}%、{ind['繼續率(二十五個月)']['median']:.1f}%）。")
+    return out

@@ -11,7 +11,7 @@
 <main class="wrap">
   <header class="page-h">
     <h1>市場數據</h1>
-    <p class="muted">三個問題：<b>供給面</b>（競品出手節奏）、<b>需求面</b>（市場往哪個險種移動）、<b>市占率</b>（法巴在市場的位置）。每個結論都附資料來源；每張圖下方都可以展開表格。</p>
+    <p class="muted">三個問題：<b>供給面</b>（競品出手節奏）、<b>需求面</b>（市場往哪個險種移動）、<b>市占率與公司比較</b>（法巴在市場的位置）。每個結論都附資料來源；每張圖下方都可以展開表格。</p>
   </header>
 
   <section class="kpis" id="kpis"></section>
@@ -45,7 +45,11 @@
   <section class="card"><h3>個人年金占全年保費的比重</h3><p class="cap" id="cap-ann"></p><div id="c-ann"></div><div id="t-ann"></div></section>
   <section class="card note" id="inv-ref" hidden></section>
 
-  <h2 class="sec">市占率：各公司保費與排名</h2>
+  <h2 class="sec">市占率與公司比較</h2>
+  <p class="sec-sub" id="co-src"></p>
+  <div id="co-err"></div>
+  <div class="grid3" id="co-grid"></div>
+  <div id="co-trend"></div>
   <section class="card" id="share"></section>
 </main>
 
@@ -222,33 +226,64 @@ function renderKpis(s, d) {
   $("kpis").innerHTML = tiles.join("");
 }
 
-function renderConclusions(s, d) {
-  const item = (tag, text, src) => `<li><span class="tag tag-${tag === "供給面" ? "s" : tag === "需求面" ? "d" : "m"}">${tag}</span>
+function renderConclusions(s, d, c) {
+  const item = (tag, text, src) => `<li><span class="tag tag-${tag === "供給面" ? "s" : tag === "需求面" ? "d" : tag === "公司比較" ? "c" : "m"}">${tag}</span>
     <span>${esc(text)}<span class="src">來源：${esc(src)}</span></span></li>`;
   $("conclusions").innerHTML = (s.conclusions || []).map(c => item("供給面", c, "各公司法定公開商品清單")).join("")
     + (d.conclusions || []).map(c => item("需求面", c, "保險事業發展中心 人身保險業保費收入")).join("")
-    + `<li><span class="tag tag-m">市占率</span><span class="muted">還沒有公司別資料（見最下方）。</span></li>`;
+    + (c.conclusions || []).map(x => item("公司比較", x, "保險局 壽險財務業務指標")).join("")
+    + `<li><span class="tag tag-m">市占率</span><span class="muted">還沒有各公司保費金額的資料來源（見最下方）。</span></li>`;
 }
 
-function renderShareGap() {
+function renderCompanies(c, selfCo) {
+  $("co-err").innerHTML = (c.errors || []).map(e => `<p class="warn">${esc(e)}</p>`).join("");
+  if (!c.period) {
+    $("co-src").innerHTML = "公司比較：還沒有資料。在 Mac 執行 <code>python -m scheduler.run open_data -v</code> 下載「壽險財務業務指標」後重新整理。";
+    return;
+  }
+  const missing = Object.entries(c.matched).filter(([, v]) => !v).map(([k]) => short(k));
+  $("co-src").innerHTML = `資料：${esc(c.source.name)}，${esc(c.period)}，共 ${c.n_companies} 家壽險公司。<a href="${esc(c.source.raw)}">原始檔</a><br>`
+    + `每張小圖是追蹤的 ${c.companies.length} 家（藍色為自家），黑色直線是全部壽險公司的中位數；括號內是在全部公司中的排名（第 1 名＝最好；費用率越低越前面，初年度保費比率由高到低）。繼續率差距小，用點表示、軸不從 0 起算。`
+    + (missing.length ? `<br><span class="warn">資料裡找不到：${esc(missing.join("、"))}</span>` : "");
+  $("co-grid").innerHTML = c.indicators.map((ind, k) => `<section class="card sub"><h3>${esc(ind.name)}</h3>
+    <p class="cap">${esc(ind.desc)}${ind.higher_good === true ? "；越高越好" : ind.higher_good === false ? "；越低越好" : ""}</p>
+    <div id="co-${k}"></div></section>`).join("");
+  c.indicators.forEach((ind, k) => {
+    const items = Object.entries(ind.values).sort((a, b) => a[1].rank - b[1].rank).map(([co, v]) => ({
+      label: short(co), value: v.value, strong: co === selfCo, color: co === selfCo ? SERIES[0] : DEEMPH,
+      text: `${ind.name.includes("變動") ? signed(v.value) : v.value.toFixed(1) + "%"}（${v.rank}/${ind.n}）`,
+      tip: { head: co, rows: [{ label: ind.name, value: ind.name.includes("變動") ? signed(v.value) : v.value.toFixed(1) + "%", color: co === selfCo ? SERIES[0] : DEEMPH },
+                              { label: `名（共 ${ind.n} 家）`, value: `第 ${v.rank}` },
+                              { label: "業界中位數", value: ind.median.toFixed(1) + "%" }] } }));
+    hbars($(`co-${k}`), items, { id: `co${k}`, labelW: 88, valueW: 104, rowH: 26, dots: ind.name.startsWith("繼續率"),
+      fmt: v => v + "%", ref: { value: ind.median, label: `中位數 ${ind.median.toFixed(1)}%` } });
+  });
+  if (c.growth_trend) {
+    $("co-trend").innerHTML = `<section class="card"><h3>保費收入變動率：各期</h3>${tableView(["期間", ...c.companies.map(short)],
+      [...c.growth_trend].reverse().map(r => [r.period, ...c.companies.map(co => r[co] == null ? "—" : signed(r[co]))]))}</section>`;
+  }
+}
+
+function renderShareGap(hasCompanies) {
   $("share").innerHTML = `
-    <p><b>還沒有公司別資料。</b>原本規劃的「人身保險業保費收入統計表（月報）」（104113）下載後確認是全市場依險種的統計，沒有公司別，已改用在上面的需求面。</p>
-    <p class="small muted">待確認的公司別來源（要先看實際檔案與 robots.txt 才能決定）：</p>
+    <h3>市占率：還沒有資料來源</h3>
+    <p class="small">目前找到的開放資料都<b>沒有各公司的保費金額</b>，所以算不出市占率：104113 是全市場依險種（已用在需求面）；
+      13517 只有產險／人身保險業全年合計；7191 是各公司的比率指標（上面的公司比較），沒有金額。</p>
+    <p class="small muted">還可以試的來源（都要先確認 robots.txt 與使用條款）：</p>
     <ul class="small">
-      <li>政府資料開放平臺 7191「壽險財務業務指標」、13517「保險業保費收入統計表」：在 Mac 執行
-        <code>python scripts/probe_open_data.py 7191 13517</code> 看欄位有沒有公司別</li>
-      <li>保險業公開資訊觀測站（ins-info.ib.gov.tw）「各險別之保費收入及保險給付」：每家公司各自揭露，可能可以拼出市占率</li>
-      <li>壽險公會各公司業績統計：有投資型初年度保費，最貼近「法巴在投資型市場的位置」，但要先確認 robots.txt 是否允許</li>
+      <li>保險業公開資訊觀測站（ins-info.ib.gov.tw）各公司「各險別之保費收入及保險給付」：每家公司各自揭露，可以拼出市占率</li>
+      <li>壽險公會各公司業績統計：有投資型初年度保費，最貼近「法巴在投資型市場的位置」</li>
     </ul>`;
 }
 
 (async () => {
   await renderNav("market");
-  const [s, d] = await Promise.all([getJSON("/api/market/supply"), getJSON("/api/market/demand")]);
+  const [s, d, c] = await Promise.all([getJSON("/api/market/supply"), getJSON("/api/market/demand"), getJSON("/api/market/companies")]);
   renderKpis(s, d);
-  renderConclusions(s, d);
+  renderConclusions(s, d, c);
   renderSupply(s);
   renderDemand(d);
+  renderCompanies(c, s.self_company);
   renderShareGap();
 })();
 </script>

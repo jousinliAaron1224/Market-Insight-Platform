@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import csv
+import json
 import io
 from typing import Any
 
@@ -91,4 +92,40 @@ def parse_lia_14539(data: bytes) -> list[dict[str, Any]]:
         out.append({"announced": r["公告日期"].strip(), "item": item,
                     "last": _num(r["去年度保費收入"]), "this": _num(r["本年度保費收入"]),
                     "growth": _num(r.get("成長率_%", ""))})
+    return out
+
+
+# ---------------------------------------------------------------------- 7191 壽險財務業務指標
+# 保險局「保險業公開資訊觀測站」的開放資料（ins-info.ib.gov.tw/opendata/json-06161610.aspx）。
+# 欄位是 AMOUNT1、AMOUNT2…，沒有欄名；依資料集說明列出的順序對應（下載後以數值範圍核對過才使用）。
+IB_7191_FIELDS = [
+    "負債占資產比率", "各種責任準備金對資產比率", "各種責任準備金變動率", "各種責任準備金淨增額對保費收入比率",
+    "關係企業投資額對業主權益比率", "初年度保費比率", "續年度保費比率", "新契約費用率", "保費收入變動率",
+    "業主權益變動率", "淨利變動率", "資金運用比率", "繼續率(十三個月)", "繼續率(二十五個月)", "資產報酬率",
+    "業主權益報酬率", "資金運用淨收益率", "投資報酬率", "營業利益對營業收入比率", "稅前純益對總收入比率",
+    "純益率", "每股盈餘", "不動產投資與不動產抵押放款對資產比率",
+]
+
+
+def parse_ib_7191(data: bytes) -> list[dict[str, Any]]:
+    """→ [{period:'2026Q2', roc_year, quarter, company, values:{指標: float|None}}]"""
+    doc = json.loads(_text(data))
+    if isinstance(doc, dict):                      # 有些平臺會包一層
+        doc = next((v for v in doc.values() if isinstance(v, list)), [])
+    if not isinstance(doc, list) or not doc or not isinstance(doc[0], dict):
+        raise ValueError("7191：不是預期的 JSON 陣列")
+    need = {"ClaimYear", "ClaimQuarter", "INSURER_Name"}
+    if not need <= set(doc[0]):
+        raise ValueError(f"7191：缺欄位 {sorted(need - set(doc[0]))}；實際欄位：{sorted(doc[0])[:40]}")
+    out = []
+    for r in doc:
+        y, q = str(r.get("ClaimYear", "")).strip(), str(r.get("ClaimQuarter", "")).strip()
+        if not (y.isdigit() and q.isdigit()):
+            continue
+        vals = {name: _num(str(r.get(f"AMOUNT{i}", "") or "").replace("N/A", ""))
+                for i, name in enumerate(IB_7191_FIELDS, start=1)}
+        out.append({"period": f"{int(y) + 1911}Q{int(q)}", "roc_year": int(y), "quarter": int(q),
+                    "company": str(r["INSURER_Name"]).strip(), "values": vals})
+    if not out:
+        raise ValueError("7191：沒有任何資料列")
     return out
