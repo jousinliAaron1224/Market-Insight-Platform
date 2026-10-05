@@ -31,22 +31,42 @@ def from_html(html: bytes | str, base_url: str, pattern: str = r"變額") -> dic
 
 
 def from_pdf_hyperlinks(data: bytes, pattern: str = r"變額") -> dict[str, str]:
-    """台灣人壽：條款清單是 PDF，每列右側「契約條款下載」是超連結；以垂直位置對應到左側商品名稱。"""
+    """台灣人壽：條款清單是 PDF，每列右側「契約條款下載」是超連結；以垂直位置對應到左側商品名稱。
+
+    列距只有約 13.5pt，不能用「連結上下放寬幾 pt」去抓文字，否則會把上下相鄰兩列的名稱也併進來，
+    再經過 match() 的前綴比對就對到隔壁列的批註條款（2026-10-04 發現：10 個商品對錯）。
+    做法：左側文字先依行分組，每一行歸給垂直重疊最多的那個連結；沒有重疊任何連結的行視為上一行的折行。
+    """
     out: dict[str, str] = {}
     with pdfplumber.open(io.BytesIO(data)) as pdf:
         for page in pdf.pages:
-            links = [h for h in page.hyperlinks if h.get("uri")]
+            links = sorted((h for h in page.hyperlinks if h.get("uri")), key=lambda h: h["top"])
             if not links:
                 continue
-            words = page.extract_words(keep_blank_chars=False)
-            for h in links:
-                top, bottom = h["top"], h["bottom"]
-                # 名稱可能折成兩行：取與連結垂直重疊（上下放寬 6pt）且位於連結左側的文字
-                row = [w for w in words if w["x1"] < h["x0"] and w["bottom"] > top - 6 and w["top"] < bottom + 6]
-                name = norm_name("".join(w["text"] for w in sorted(row, key=lambda w: (round(w["top"]), w["x0"]))))
-                name = name.replace("契約條款下載", "")
+            left_edge = min(h["x0"] for h in links)
+            words = [w for w in page.extract_words(keep_blank_chars=False) if w["x1"] < left_edge]
+            rows: list[list[dict]] = []
+            for w in sorted(words, key=lambda w: (w["top"], w["x0"])):
+                if rows and abs(rows[-1][0]["top"] - w["top"]) < 3:
+                    rows[-1].append(w)
+                else:
+                    rows.append([w])
+            names: dict[int, list[str]] = {}
+            last: int | None = None
+            for row in rows:
+                top, bottom = min(w["top"] for w in row), max(w["bottom"] for w in row)
+                overlaps = [(min(bottom, h["bottom"]) - max(top, h["top"]), i) for i, h in enumerate(links)]
+                best, i = max(overlaps)
+                if best > 0:
+                    last = i
+                elif last is None:
+                    continue                        # 表頭等連結以上的文字
+                names.setdefault(last if best <= 0 else i, []).append(
+                    "".join(w["text"] for w in sorted(row, key=lambda w: w["x0"])))
+            for i, parts in names.items():
+                name = norm_name("".join(parts)).replace("契約條款下載", "")
                 if name and re.search(pattern, name):
-                    out.setdefault(name, h["uri"])
+                    out.setdefault(name, links[i]["uri"])
     return out
 
 

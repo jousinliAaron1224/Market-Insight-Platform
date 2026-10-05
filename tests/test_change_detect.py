@@ -132,3 +132,35 @@ def test_list_failure_marks_run_error(make_env):
     run = db.conn.execute("SELECT status, items_listed, error_detail FROM crawl_runs").fetchone()
     assert run["status"] == "error" and run["items_listed"] == 0 and "list_items" in run["error_detail"]
     assert st.listed == 0
+
+
+def test_url_change_marks_doc_revised_as_source_correction(make_env):
+    """D25：同一項目改抓另一個網址（例如修正條款對應）→ 仍存新版本，但標 url_changed，下游不當成改版。"""
+    from adapters.base import ItemRef, RawDoc
+    from core.storage import utcnow
+
+    class OneItem:
+        source_id = "s"
+
+        def __init__(self, raw):
+            self.ctx = type("C", (), {"raw": raw})()
+            self.url, self.body = "https://a/1.pdf", b"v1"
+
+        def list_items(self):
+            return [ItemRef("s", "k", self.url, "t", None)]
+
+        def fetch(self, ref):
+            path, h = self.ctx.raw.put("s", self.body, "pdf", utcnow())
+            return RawDoc("s", "k", self.url, utcnow(), h, "pdf", path, None, None, {"title": "t"})
+
+    db, raw, _ = make_env(FakeSite({}))
+    ad = OneItem(raw)
+    run_source(ad, db)
+    ad.url, ad.body = "https://a/2.pdf", b"v2"        # 對應更正：換網址、內容也不同
+    run_source(ad, db)
+    ev = events.pending(db, {events.DOC_REVISED})[0]["payload"]
+    assert ev["url_changed"] is True and ev["previous_url"] == "https://a/1.pdf" and ev["version"] == 2
+    ad.body = b"v3"                                    # 同網址內容改變 → 一般改版
+    run_source(ad, db, refetch=True)
+    ev = events.pending(db, {events.DOC_REVISED})[-1]["payload"]
+    assert "url_changed" not in ev

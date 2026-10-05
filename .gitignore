@@ -7,5 +7,6 @@ data/intel.db*
 data/raw/*
 !data/raw/.gitkeep
 data/snapshots/
+data/replay/
 .DS_Store
 .Rhistory

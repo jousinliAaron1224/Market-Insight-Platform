@@ -140,14 +140,15 @@ def _line(step: Step, status: str, summary: dict[str, Any]) -> str:
         return f"{step.at}  {mark} [{cats}] {title}"
     if "articles" in summary:
         if summary.get("not_main_clause"):
-            return f"{step.at}  ⚠ 條款對應疑似錯誤（批註條款）｜{title}"
+            return f"{step.at}  ⚠ 條款對應疑似錯誤（批註條款或其他商品的條款）｜{title}"
         miss = len(summary.get("missing", []))
-        head = "條款改版" if step.type == events.DOC_REVISED else "條款解析"
+        head = ("條款來源更正" if summary.get("source_corrected") else
+                "條款改版" if step.type == events.DOC_REVISED else "條款解析")
         extra = ""
         if summary.get("diff"):
             d = summary["diff"]
             extra = f"；改 {len(d['changed'])} 條、增 {len(d['added'])}、刪 {len(d['removed'])}"
-        elif step.type == events.DOC_REVISED:
+        elif step.type == events.DOC_REVISED and pl.get("revision_date"):
             docs = "、".join(f"{f.get('kind') or ''}{f['doc_no']}" for f in summary.get("filings") or [])
             extra = f"；修正日 {pl.get('revision_date')}{rec}" + (f"，{docs}" if docs else "")
         return f"{step.at}  　{head} {summary['articles']} 條，欄位 {summary.get('fields', 0)}，待補 {miss}{extra}｜{title}"

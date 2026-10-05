@@ -97,7 +97,7 @@ def setup_db(tmp_path):
     return db, raw
 
 
-def add_version(db, raw, pdf, version, prev=None, name="凱基人壽鑫旺九九外幣變額年金保險(112)"):
+def add_version(db, raw, pdf, version, prev=None, name="凱基人壽鑫旺九九外幣變額年金保險(112)", extra=None):
     path, digest = raw.put("company_kgi_products", pdf, "pdf", utcnow())
     meta = {"title": name, "company": "凱基人壽", "line": "變額年金保險", "currency": "FX",
             "clause_url": "https://example/clause.pdf"}
@@ -109,6 +109,7 @@ def add_version(db, raw, pdf, version, prev=None, name="凱基人壽鑫旺九九
           "doc_type": "pdf", "version": version, "company": "凱基人壽"}
     if prev:
         pl.update(previous_raw_doc_id=prev, previous_version=version - 1)
+    pl.update(extra or {})
     events.emit(db, events.DOC_REVISED if prev else events.NEW_ITEM, rid, pl)
     db.conn.commit()
     return rid
@@ -127,13 +128,19 @@ def test_handler_new_item_and_revision(tmp_path):
     assert json.loads(terms["coverage"]) == ["返還保單帳戶價值", "年金給付"]
     assert db.conn.execute("SELECT COUNT(*) FROM clause_articles WHERE raw_doc_id=?", (v1,)).fetchone()[0] == 38   # 前言＋36 條＋附表
 
-    v2 = add_version(db, raw, CARDIF, 2, prev=v1)      # 用另一份條款當「新版」，驗證逐條比對機制
+    v2 = add_version(db, raw, KGI + b"\n% v2", 2, prev=v1)    # 新版（位元組不同、條文相同）
     process_pending(ctx, [ClauseHandler()], on_event=lambda e, s, sm: seen.append(sm))
-    d = seen[-1]["diff"]
-    assert d["removed"] == [] and len(d["changed"]) > 20
+    assert seen[-1]["diff"] == {"added": [], "removed": [], "changed": []}
     row = db.conn.execute("SELECT * FROM clause_diffs WHERE raw_doc_id=?", (v2,)).fetchone()
     assert row["previous_raw_doc_id"] == v1
     assert db.conn.execute("SELECT clause_version FROM product_terms").fetchone()[0] == 2
+
+    # 抓到別的商品的條款（M3 對應錯誤）：標警告，product_terms 不採用它的欄位
+    v3 = add_version(db, raw, CARDIF, 3, prev=v2)
+    process_pending(ctx, [ClauseHandler()], on_event=lambda e, s, sm: seen.append(sm))
+    assert seen[-1]["not_main_clause"] and any("條款與商品不符" in w for w in seen[-1]["warnings"])
+    t = db.conn.execute("SELECT clause_raw_doc_id, coverage FROM product_terms").fetchone()
+    assert t["clause_raw_doc_id"] is None and t["coverage"] is None
 
 
 def test_enricher_can_only_fill_missing_fields_with_evidence(tmp_path):
@@ -162,3 +169,15 @@ def test_endorsement_pdf_flagged_not_main_clause():
     r = parse_clause_pdf(fixture_bytes("companies", "taiwanlife", "endorsement_sample.pdf"), "台灣人壽鑫豐收外幣變額年金保險")
     assert r.not_main_clause and r.fields == {}
     assert any("批註條款" in w for w in r.warnings)
+
+
+def test_source_correction_is_not_diffed(tmp_path):
+    """D25：url_changed 的 doc_revised 是來源更正，不做逐條比對、不寫 clause_diffs。"""
+    db, raw = setup_db(tmp_path)
+    ctx = ParseContext(db=db, raw=raw)
+    v1 = add_version(db, raw, KGI, 1)
+    add_version(db, raw, KGI + b"\n% fixed", 2, prev=v1, extra={"url_changed": True, "previous_url": "https://old"})
+    seen = []
+    process_pending(ctx, [ClauseHandler()], on_event=lambda e, s, sm: seen.append(sm))
+    assert seen[-1]["source_corrected"] and "diff" not in seen[-1]
+    assert db.conn.execute("SELECT COUNT(*) FROM clause_diffs").fetchone()[0] == 0

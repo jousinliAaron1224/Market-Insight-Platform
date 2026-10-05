@@ -39,7 +39,8 @@ def env(tmp_path):
     add(db, raw, "tii_law_rss", "t-old", "html", TII + b"1", tii(1, "2026-03-01"), "html")
     add(db, raw, "tii_law_rss", "t-new", "html", TII + b"2", tii(2, "2026-09-20"), "html")
     co = {"company": "凱基人壽", "line": "變額年金保險", "currency": "USD"}
-    names = ["凱基人壽新上架外幣變額年金保險", "凱基人壽剛修正外幣變額年金保險", "凱基人壽老商品外幣變額年金保險"]
+    # 三個商品共用同一份條款 fixture；名稱都要是條款抬頭的一部分，否則會被判定「條款與商品不符」
+    names = ["凱基人壽鑫旺九九外幣變額年金保險", "凱基人壽旺九九外幣變額年金保險", "凱基人壽九九外幣變額年金保險"]
     dates = [("2026-09-01", "2026-09-01"), ("2020-01-01", "2026-08-15"), ("2019-01-01", "2024-01-01")]
     for i, (n, (f, l)) in enumerate(zip(names, dates)):
         add(db, raw, "company_kgi_products", f"k:{n}", "pdf", KGI + str(i).encode(),
@@ -61,13 +62,13 @@ def test_timeline_reconstruction(env):
     steps = rp.build_timeline(conn, "2026-07-05", "2026-10-03")
     live = [(s.at, s.type, s.payload.get("title")[:8], s.payload.get("reconstructed")) for s in steps if not s.baseline]
     assert live == [
-        ("2026-08-15", "doc_revised", "凱基人壽剛修正外", True),
-        ("2026-09-01", "product_launched", "凱基人壽新上架外", True),
-        ("2026-09-01", "new_item", "凱基人壽新上架外", False),
+        ("2026-08-15", "doc_revised", "凱基人壽旺九九外", True),
+        ("2026-09-01", "product_launched", "凱基人壽鑫旺九九", True),
+        ("2026-09-01", "new_item", "凱基人壽鑫旺九九", False),
         ("2026-09-20", "new_item", "投資型保險商品銷", False),
     ]
     base = [s.payload.get("title")[:8] for s in steps if s.baseline]
-    assert sorted(base) == sorted(["投資型保險商品銷", "凱基人壽剛修正外", "凱基人壽老商品外"])
+    assert sorted(base) == sorted(["投資型保險商品銷", "凱基人壽旺九九外", "凱基人壽九九外幣"])
     assert all(s.payload["replay"] for s in steps)
 
 
@@ -78,7 +79,7 @@ def test_replay_runs_parse_layer_on_work_copy(env):
     assert st["errors"] == 0 and st["baseline"] == 3 and st["replayed"] == 4
     assert st["by_type"] == {"doc_revised": 1, "product_launched": 1, "new_item": 2}
     text = "\n".join(lines)
-    assert "＋上架  凱基人壽｜凱基人壽新上架外幣變額年金保險（依核准日重建）" in text
+    assert "＋上架  凱基人壽｜凱基人壽鑫旺九九外幣變額年金保險（依核准日重建）" in text
     assert "條款改版 36 條" in text and "修正日 2026-08-15（依修正日重建）" in text
     assert "★高" in text
     assert st["product_terms"] == {"products": 3, "with_clause": 3}

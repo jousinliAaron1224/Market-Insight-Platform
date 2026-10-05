@@ -216,6 +216,10 @@ def print_event_line(ev: dict, status: str, summary: dict) -> None:
             tag += "（隱藏）"
     elif "articles" in summary:
         tag = f"條款 {summary['articles']} 條，欄位 {summary.get('fields', 0)}，缺 {len(summary.get('missing', []))}"
+        if summary.get("source_corrected"):
+            tag += "；來源更正（非改版）"
+        if summary.get("not_main_clause"):
+            tag += "；⚠ 條款對應疑似錯誤"
         if summary.get("diff"):
             d = summary["diff"]
             tag += f"；改版：改 {len(d['changed'])} 條、增 {len(d['added'])}、刪 {len(d['removed'])}"

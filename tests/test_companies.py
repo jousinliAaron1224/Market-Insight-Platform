@@ -24,7 +24,7 @@ COMPANIES = {
     "company_cathay_products": (CathayProductsAdapter, "cathay", {"clause_index_url": "public_info_page.html"}, 48, 48),
     "company_fubon_products": (FubonProductsAdapter, "fubon",
                                {"clause_index_url": "public_info_page.html", "product_list_page": "public_info_page.html"}, 20, 20),
-    "company_taiwanlife_products": (TaiwanLifeProductsAdapter, "taiwanlife", {"clause_index_url": "clause_list.pdf"}, 41, 40),
+    "company_taiwanlife_products": (TaiwanLifeProductsAdapter, "taiwanlife", {"clause_index_url": "clause_list.pdf"}, 41, 41),
     "company_kgi_products": (KgiProductsAdapter, "kgi", {"clause_index_url": "clause_page.html"}, 39, 39),
 }
 
@@ -134,10 +134,10 @@ def test_clause_revision_creates_version_and_updates_product(make_env):
 
 
 def test_missing_clause_recorded_as_list_row_with_warning(make_env):
-    site, db, raw, ad = setup(make_env, "company_taiwanlife_products")
+    site, db, raw, ad = setup(make_env, "company_cardif_products")
     st = run_source(ad, db)
     rows = db.conn.execute("SELECT meta FROM raw_docs WHERE doc_type='list_row'").fetchall()
-    assert len(rows) == 1 and "clause pdf not found" in json.loads(rows[0]["meta"])["parse_warnings"]
+    assert len(rows) == 8 and all("clause pdf not found" in json.loads(r["meta"])["parse_warnings"] for r in rows)
     assert st.errors == 0
 
 
@@ -160,3 +160,17 @@ def test_clause_index_name_normalisation():
     idx = {"富邦人壽鑫享人生變額年金保險": "u1", "凱基人壽鑫旺九九變額壽險(112)": "u2"}
     assert clause_index.match("富邦人壽鑫享人生變額年金保險pdf", idx) == "u1"
     assert clause_index.match("凱基人壽鑫旺九九變額壽險", idx) == "u2"
+
+
+def test_taiwanlife_clause_rows_not_merged_with_neighbours():
+    """台灣人壽條款清單列距約 13.5pt：每個連結只能對到自己那一列，不能把上下列（常是批註條款）併進名稱。
+    2026-10-04 前有 10 個商品因此被對應到「投資標的…批註條款」。"""
+    idx = clause_index.from_pdf_hyperlinks(fixture_bytes("companies", "taiwanlife", "clause_list.pdf"))
+    assert all(len(k) <= 30 for k in idx)
+    rows = [r for r in parse_disclosure_pdf(fixture_bytes("companies", "taiwanlife", "product_list.pdf"), "台灣人壽")
+            if r.is_investment and not r.is_rider]
+    for r in rows:
+        url = clause_index.match(r.name, idx)
+        key = next(k for k, v in idx.items() if v == url)
+        assert "批註" not in key and key.startswith(clause_index.norm_name(r.name)), (r.name, key)
+    assert idx["台灣人壽鑫豐收外幣變額萬能壽險"].endswith("/File/10208")

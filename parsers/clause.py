@@ -46,7 +46,9 @@ class ClauseHandler:
         if rev:  # 重播時重建的改版：附上同一天的文號（條款前言）
             summary["filings"] = [f for f in parsed["fields"].get("filings", []) if f.get("date") == rev]
         prev = event["payload"].get("previous_raw_doc_id")
-        if event["type"] == events.DOC_REVISED and prev:
+        if event["payload"].get("url_changed"):
+            summary["source_corrected"] = True          # D25：來源更正，不是改版，不比對前一版
+        elif event["type"] == events.DOC_REVISED and prev:
             ensure_parsed(ctx, int(prev))
             d = article_diff(articles_of(ctx, int(prev)), articles_of(ctx, rid))
             ctx.db.conn.execute(

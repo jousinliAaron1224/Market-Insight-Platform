@@ -173,5 +173,9 @@ def _store_version(db: Database, doc: RawDoc, latest) -> int:
     else:
         payload.update(previous_raw_doc_id=latest["id"], previous_version=latest["version"],
                        previous_raw_path=latest["raw_path"])
+        if latest["url"] != doc.url:
+            # 來源更正（D25）：同一項目改抓另一個網址（例如修正條款對應），不是原文件改版；
+            # 照樣存新版本，但標記讓下游不要當成改版、不做逐條比對
+            payload.update(url_changed=True, previous_url=latest["url"])
         events.emit(db, events.DOC_REVISED, raw_doc_id, payload)
     return raw_doc_id

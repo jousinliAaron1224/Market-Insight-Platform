@@ -9,7 +9,7 @@
 cd insurance-intel
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-pytest -q                                  # 96 個測試，全部離線（M3／M4 用實際下載的官網 PDF，約 75 秒）
+pytest -q                                  # 99 個測試，全部離線（M3／M4 用實際下載的官網 PDF，約 75 秒）
 
 python -m scheduler.run tii_law_rss -v     # 真的抓一輪（約 3 分鐘：50 筆內文，每筆間隔 3 秒）
 python -m scheduler.run --events           # 應該看到 50 筆 new_item
@@ -47,7 +47,9 @@ python -m demo.replay demo-1004 --delay 0.8      # 從快照重播過去 90 天
 - **分類規則**在 sources.yaml 的 `parsing.classify`，關鍵字是正規表示式（「上半年金融」不算年金、「非投資型」不算投資型）。
 - **快照**（`demo/snapshot.py`）：`data/snapshots/<名稱>/` 含資料庫線上備份、引用到的 raw 檔與 manifest（sha256）；不可覆蓋，`verify` 檢查完整性；新聞導言預設不帶（D16）。
 - **重播**（`demo/replay.py`）：在 `data/replay/<快照>/` 的工作副本上，依真實日期重建過去 N 天：文字來源依發布日；商品依清單 PDF 的首次核准日重建上架、依最近修正日重建條款改版（標 `reconstructed`）。查結果：`python -m scheduler.run --db data/replay/<快照>/intel.db --labels`。
-- 已知問題：台灣人壽有 10 個商品被對應到「投資標的…批註條款」而不是主約條款（M3 clause_index）。解析層會標警告、不採用其欄位；待 M4 之後修正。
+- 條款對應防呆：條款前言找不到商品名稱、或抬頭是批註條款時，標「條款與商品不符／非主約條款」並不採用其欄位。
+- 來源更正（D25）：同一項目改抓另一個網址且內容不同時，仍存新版本並發 `doc_revised`，但帶 `url_changed`／`previous_url`；解析層視為來源更正，不做逐條比對、不當改版顯示。
+- 2026-10-05 修正台灣人壽條款對應（`clause_index.from_pdf_hyperlinks`）：條款清單列距約 13.5pt，舊版把上下相鄰列的名稱併進來，導致 40 個商品全部對到隔壁列的條款。修正後下次抓取會自動改抓正確檔案（列表指紋含網址），產生 40 筆標 `url_changed` 的來源更正。
 
 ### 競品商品資料（M3）
 

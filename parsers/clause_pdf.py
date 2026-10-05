@@ -109,17 +109,17 @@ def _page_lines(page, pno: int, gap: tuple[float, float] | None) -> list[Line]:
         block_r.clear()
 
     for ln in raw:
-        chars = [c for c in ln["chars"] if c["text"].strip()]
+        chars = sorted((c for c in ln["chars"] if c["text"].strip()), key=lambda c: c["x0"])
         if not chars:
             continue
-        # 跨欄＝有字壓在欄縫中線上（首頁沿用其他頁的欄縫時，左欄的字可能略為伸進欄縫，不算跨欄）
-        crosses = any(c["x0"] < mid - 1 and c["x1"] > mid + 1 for c in chars)
-        if crosses:  # 跨欄的整列（標題、頁尾）：先把目前段落的左右欄輸出
+        lc = [c for c in chars if (c["x0"] + c["x1"]) / 2 < mid]     # 以字的中心分左右，不會漏字
+        rc = [c for c in chars if (c["x0"] + c["x1"]) / 2 >= mid]
+        # 兩邊都有字時：左欄最後一字與右欄第一字之間要有明顯空白才是左右兩欄；
+        # 字距連續（例如首頁置中的大字商品名稱）就是跨欄的整列
+        if lc and rc and rc[0]["x0"] - lc[-1]["x1"] < 6:
             flush()
             out.append(Line(pno, ln["top"], _chars_text(chars)))
             continue
-        lc = [c for c in chars if c["x1"] <= mid]
-        rc = [c for c in chars if c["x0"] >= mid]
         if lc:
             block_l.append(Line(pno, ln["top"], _chars_text(lc)))
         if rc:
@@ -493,7 +493,7 @@ class ClauseParse:
     evidence: dict[str, Any]
     missing: list[str]
     warnings: list[str]
-    not_main_clause: bool = False   # 條款對應錯了：拿到的是批註條款／附約，不是主約
+    not_main_clause: bool = False   # 條款對應錯了：批註條款／附約，或抬頭不是這個商品
 
     @property
     def articles(self) -> list[Section]:
@@ -501,6 +501,11 @@ class ClauseParse:
 
     def rows(self) -> list[dict[str, Any]]:
         return [s.as_row(i) for i, s in enumerate(self.sections)]
+
+
+def _name_core(s: str) -> str:
+    s = re.sub(r"[\s()（）]", "", unicodedata.normalize("NFKC", s or ""))
+    return re.sub(r"^.*?人壽(保險股份有限公司|股份有限公司)?", "", s, count=1) if "人壽" in s[:12] else s
 
 
 def parse_clause_pdf(pdf_bytes: bytes, product_name: str | None = None) -> ClauseParse:
@@ -514,6 +519,13 @@ def parse_clause_pdf(pdf_bytes: bytes, product_name: str | None = None) -> Claus
     if not_main:
         warnings.append(f"非主約條款：文件抬頭為「{head}」，條款對應可能有誤")
         return ClauseParse(info["pages"], info["two_column"], sections, {}, {}, list(REQUIRED), warnings, True)
+    # 條款抬頭要出現商品名稱（去掉公司名與括號後比對）；不符代表抓到別的商品的條款
+    if product_name:
+        core = _name_core(product_name)
+        pre = _name_core(sections[0].text)[:800]
+        if core and core not in pre:
+            warnings.append(f"條款與商品不符：前言找不到「{product_name}」，條款對應可能有誤")
+            return ClauseParse(info["pages"], info["two_column"], sections, {}, {}, list(REQUIRED), warnings, True)
     ex = extract_fields(sections, product_name)
     return ClauseParse(info["pages"], info["two_column"], sections, ex["fields"], ex["evidence"],
                        ex["missing"], warnings)
