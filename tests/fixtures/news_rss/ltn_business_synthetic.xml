@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 測試用合成資料（非真實新聞）：只用來驗證自由時報財經 RSS 2.0 格式的解析與關鍵字過濾 -->
+<rss version="2.0"><channel>
+<title>自由時報財經</title><link>https://ec.ltn.com.tw/</link><description>測試</description>
+<item><title>（測試）壽險業前8月保費收入統計</title><link>https://ec.ltn.com.tw/article/breakingnews/9000001</link>
+<description><![CDATA[測試導言：投資型保單保費成長。]]></description><pubDate>Sun, 04 Oct 2026 10:30:00 +0800</pubDate><guid>https://ec.ltn.com.tw/article/breakingnews/9000001</guid></item>
+<item><title>（測試）台股盤中震盪</title><link>https://ec.ltn.com.tw/article/breakingnews/9000002</link>
+<description><![CDATA[測試導言：加權指數盤中震盪。]]></description><pubDate>Sun, 04 Oct 2026 11:00:00 +0800</pubDate><guid>https://ec.ltn.com.tw/article/breakingnews/9000002</guid></item>
+</channel></rss>

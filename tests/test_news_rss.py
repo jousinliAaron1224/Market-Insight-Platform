@@ -112,3 +112,19 @@ def test_disabled_feed_is_not_requested(make_env):
     st = run_source(ad, db)
     assert st.errors == 0 and st.new_items == 1
     assert site.hits("ctee") == 0
+
+
+def test_ltn_business_feed_configured_and_filtered(make_env):
+    """D26：自由時報財經 RSS 已設定、啟用並以關鍵字過濾（fixture 為合成資料，只驗證格式處理）。"""
+    from core.config import load_config, source_config
+    feeds = {f["name"]: f for f in source_config(load_config(), "news_rss")["feeds"]}
+    ltn = feeds["ltn_business"]
+    assert ltn.get("enabled", True) and ltn["keyword_filter"] is True
+    site = FakeSite({ltn["url"]: (200, fixture_bytes("news_rss", "ltn_business_synthetic.xml"), {})})
+    db, raw, http = make_env(site)
+    ad = NewsRssAdapter(make_ctx(raw, http, validator_lookup(db)), {"feeds": [ltn]})
+    st = run_source(ad, db)
+    assert (st.listed, st.new_items, st.errors) == (1, 1, 0)
+    ev = events.pending(db)[0]["payload"]
+    assert ev["feed"] == "ltn_business" and ev["item_key"].startswith("ltn_business:")
+    assert db.get_lead("news_rss", ev["item_key"]).startswith("測試導言")

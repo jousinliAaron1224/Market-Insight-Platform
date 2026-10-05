@@ -8,8 +8,16 @@
 </head>
 <body>
 <nav id="nav"></nav>
-<h1>情報牆 <span class="small muted" id="summary"></span></h1>
 
+<h1>本週要注意 <span class="small muted" id="weekrange"></span>
+  <select id="days" class="small"><option value="7">最近 7 天</option><option value="14">最近 14 天</option><option value="30">最近 30 天</option></select></h1>
+<div id="weeksum" class="small"></div>
+<div id="week"></div>
+
+<h1 style="margin-top:28px">
+  <button type="button" class="tab" data-tab="law">法規動態</button>
+  <button type="button" class="tab" data-tab="news">新聞動態</button>
+</h1>
 <form class="filters" id="f" onsubmit="return false">
   <span>影響程度：
     <label><input type="checkbox" name="imp" value="high" checked> 高</label>
@@ -19,69 +27,139 @@
   <label>類別 <select name="category"><option value="">全部</option></select></label>
   <label>來源 <select name="source"><option value="">全部</option></select></label>
   <label>日期 <input type="date" name="from"> ～ <input type="date" name="to"></label>
-  <label>標題關鍵字 <input type="search" name="q" size="14"></label>
-  <label>排序 <select name="sort"><option value="impact">影響程度</option><option value="date">日期</option></select></label>
-  <label><input type="checkbox" name="hidden"> 顯示預設隱藏（公關稿、非保險業）</label>
+  <label>標題關鍵字 <input type="search" name="q" size="12"></label>
+  <label><input type="checkbox" name="only_self"> 只看影響自家商品的</label>
+  <label><input type="checkbox" name="hidden"> 顯示預設隱藏</label>
   <button type="button" id="reset">清除條件</button>
 </form>
-
 <div id="count" class="small muted"></div>
-<table id="list">
-  <thead><tr><th class="nowrap">日期</th><th>影響</th><th>類別</th><th>來源</th><th>標題</th><th>依據</th></tr></thead>
-  <tbody></tbody>
-</table>
+<div id="list"></div>
 
 <script src="/common.js"></script>
 <script>
 const form = document.getElementById("f");
+let meta = {}, tab = "law";
+const GROUP_SOURCES = { law: ["tii_law_rss", "fsc_press", "fsc_penalty"], news: ["news_rss"] };
 
-function params() {
-  const fd = new FormData(form);
-  return {
-    impact: fd.getAll("imp").join(","),
-    category: fd.get("category"), source: fd.get("source"),
-    from: fd.get("from"), to: fd.get("to"), q: (fd.get("q") || "").trim(),
-    sort: fd.get("sort"), hidden: fd.get("hidden") ? "all" : "0",
-  };
+function compareLink(company, name, art) {
+  const h = new URLSearchParams({ sel: `${company}|${name}` });
+  if (art) h.set("art", art);
+  return `/compare.html#${h.toString()}`;
 }
 
-function row(it, i) {
+// 一筆情報：標題列＋（展開）判定理由、對商品的影響
+function itemHTML(it) {
+  const pi = it.product_impact || {};
   const extra = Object.entries(it.extra || {}).map(([k, v]) => {
     const zh = { unit: "發布單位", respondent: "受處分人", fine_twd: "罰鍰（元）", data_type: "資料類別", feed: "新聞來源", doc_no: "發文字號" }[k] || k;
     return `${zh}：${esc(k === "fine_twd" ? Number(v).toLocaleString() : v)}`;
   }).join("；");
   return `<tr class="${it.hidden ? "hidden-item" : ""}">
     <td class="nowrap">${esc(it.date)}</td>
-    <td class="imp imp-${it.impact}">${IMPACT_ZH[it.impact]}${it.hidden ? '<div class="small">（隱藏）</div>' : ""}</td>
-    <td class="nowrap">${esc(it.categories.join("、") || "未分類")}</td>
-    <td class="nowrap">${esc(it.source)}</td>
-    <td><a href="${esc(it.url)}" target="_blank" rel="noopener">${esc(it.title)}</a>
-        ${extra ? `<div class="small muted">${extra}</div>` : ""}</td>
-    <td class="nowrap"><details><summary>為什麼</summary>
-        <ul class="reasons small">${it.reasons.map(r => `<li>${esc(r)}</li>`).join("")}</ul>
-        ${it.raw ? `<a class="small" href="${esc(it.raw)}" target="_blank">抓取時的原文存檔</a>` : ""}
-      </details></td>
+    <td class="imp imp-${it.impact}">${IMPACT_ZH[it.impact]}</td>
+    <td>
+      <a href="${esc(it.url)}" target="_blank" rel="noopener">${esc(it.title)}</a>
+      <div class="small muted">${esc(it.source)}｜${esc(it.categories.join("、") || "未分類")}${extra ? "｜" + extra : ""}</div>
+    </td>
+    <td class="small">${pi.summary ? esc(pi.summary) : '<span class="muted">—</span>'}
+      <details data-id="${it.raw_doc_id}"><summary>細節</summary><div class="detail">載入中…</div></details>
+    </td>
   </tr>`;
 }
 
-async function load() {
+function tableHTML(items, empty) {
+  if (!items.length) return `<p class="muted">${empty}</p>`;
+  return `<table><thead><tr><th>日期</th><th>影響</th><th>標題</th><th style="width:34%">對現有商品的影響</th></tr></thead>
+    <tbody>${items.map(itemHTML).join("")}</tbody></table>`;
+}
+
+// 展開「細節」時才載入受影響商品清單
+document.addEventListener("toggle", async e => {
+  const d = e.target;
+  if (!(d instanceof HTMLDetailsElement) || !d.open || !d.dataset.id || d.dataset.loaded) return;
+  d.dataset.loaded = "1";
+  const it = await getJSON("/api/impact?raw_doc_id=" + d.dataset.id);
+  const pi = it.product_impact;
+  const art = (pi.articles || [])[0];
+  const self = pi.self_products || [];
+  const comp = Object.entries(pi.competitors || {}).map(([c, n]) => `${esc(c)} ${n}`).join("、");
+  d.querySelector(".detail").innerHTML = `
+    <div><b>判定理由</b><ul class="reasons">${it.reasons.map(r => `<li>${esc(r)}</li>`).join("")}</ul></div>
+    ${pi.reasons.length ? `<div><b>對應商品的依據</b>：${esc(pi.reasons.join("、"))}（${esc(pi.scope)}）</div>` : ""}
+    ${pi.untracked.length ? `<div><b>影響的商品線</b>：${esc(pi.untracked.join("、"))}（目前未收錄，M3 只有投資型）</div>` : ""}
+    ${pi.company_level.length ? `<div><b>公司層級</b>：${esc(pi.company_level.join("、"))}</div>` : ""}
+    ${pi.articles.length ? `<div><b>建議檢視條文</b>：${esc(pi.articles.join("、"))}</div>` : ""}
+    ${self.length ? `<div><b>自家受影響商品 ${self.length} 個</b>：${esc(Object.entries(pi.self_lines || {}).map(([l, n]) => `${l} ${n}`).join("、"))}
+        <details><summary>列出商品（點商品名稱到競品比較）</summary>
+        <div class="namegrid">${self.map(n => `<a href="${compareLink(pi.self_company, n, art)}" target="_blank">${esc(n.replace(pi.self_company, ""))}</a>`).join("")}</div>
+        </details></div>` : ""}
+    ${comp ? `<div><b>競品受影響商品數</b>：${comp}</div>` : ""}
+    ${it.raw ? `<div><a href="${esc(it.raw)}" target="_blank">抓取時的原文存檔</a></div>` : ""}`;
+}, true);
+
+// ---------------- 本週要注意 ----------------
+async function loadWeek() {
+  const days = document.getElementById("days").value;
+  const w = await getJSON("/api/week?days=" + days);
+  if (!w.as_of) { document.getElementById("week").innerHTML = '<p class="muted">沒有資料</p>'; return; }
+  document.getElementById("weekrange").textContent = `${w.from} ～ ${w.as_of}（以資料最新日期為準）`;
+  const c = w.counts;
+  document.getElementById("weeksum").innerHTML =
+    `法規 ${c.law.total} 則（高 ${c.law.high}）・新聞 ${c.news.total} 則（高 ${c.news.high}）・商品動態 ${w.product_events.length} 筆`;
+  const evZh = { product_launched: "＋上架", product_discontinued: "－停售", doc_revised: "條款改版" };
+  const pev = w.product_events.length ? `<h2>商品動態</h2><table><thead><tr><th>日期</th><th>事件</th><th>公司</th><th>商品</th></tr></thead><tbody>`
+    + w.product_events.map(p => `<tr><td class="nowrap">${esc(p.date)}</td>
+        <td class="nowrap">${p.source_corrected ? "條款來源更正" : evZh[p.type]}${p.reconstructed ? '<span class="small muted">（重建）</span>' : ""}</td>
+        <td class="nowrap">${esc(p.company || "")}</td>
+        <td><a href="${compareLink(p.company, p.title)}" target="_blank">${esc(p.title)}</a></td></tr>`).join("")
+    + "</tbody></table>" : "";
+  document.getElementById("week").innerHTML =
+    `<h2>要注意的法規與新聞（高影響，或會影響${esc(w.self_company || "自家")}商品）</h2>`
+    + tableHTML(w.focus, "這段期間沒有高影響或影響自家商品的項目") + pev;
+}
+
+// ---------------- 法規動態／新聞動態 ----------------
+function params() {
+  const fd = new FormData(form);
+  return {
+    group: tab, impact: fd.getAll("imp").join(","),
+    category: fd.get("category"), source: fd.get("source"),
+    from: fd.get("from"), to: fd.get("to"), q: (fd.get("q") || "").trim(),
+    hidden: fd.get("hidden") ? "all" : "0",
+  };
+}
+
+async function loadList() {
   const data = await getJSON("/api/labels?" + qs(params()));
-  document.getElementById("count").textContent = `符合 ${data.total} 筆` + (data.total > data.items.length ? `（顯示前 ${data.items.length} 筆）` : "");
-  document.querySelector("#list tbody").innerHTML = data.items.map(row).join("")
-    || `<tr><td colspan="6" class="muted">沒有符合條件的項目</td></tr>`;
+  let items = data.items;
+  if (form.only_self.checked) items = items.filter(i => i.product_impact.self_count > 0);
+  document.getElementById("count").textContent = `符合 ${items.length} 筆`;
+  const empty = tab === "news"
+    ? "目前沒有新聞。新聞來源是中央社財經與自由時報財經 RSS（以保險關鍵字過濾），RSS 只提供最近幾十則；請在 Mac 執行 python -m scheduler.run news_rss，或用 --serve 定時抓取讓新聞累積。"
+    : "沒有符合條件的項目";
+  document.getElementById("list").innerHTML = tableHTML(items, empty);
+}
+
+function setTab(t) {
+  tab = t;
+  document.querySelectorAll(".tab").forEach(b => b.classList.toggle("on", b.dataset.tab === t));
+  form.source.innerHTML = option("", "全部") + GROUP_SOURCES[t].map(s => option(s, meta.source_labels[s] || s)).join("");
+  history.replaceState(null, "", "#" + new URLSearchParams({ tab: t, days: document.getElementById("days").value }));
+  loadList();
 }
 
 (async () => {
-  const m = await renderNav("wall");
-  const ic = m.impact_counts || {};
-  document.getElementById("summary").textContent =
-    `高 ${ic.high || 0}・中 ${ic.medium || 0}・低 ${ic.low || 0}（另有 ${m.hidden_count || 0} 筆預設隱藏）`;
-  form.category.insertAdjacentHTML("beforeend", (m.categories || []).map(c => option(c, c)).join(""));
-  form.source.insertAdjacentHTML("beforeend", (m.label_sources || []).map(s => option(s, m.source_labels[s] || s)).join(""));
-  form.addEventListener("change", load);
-  form.q.addEventListener("input", () => { clearTimeout(form._t); form._t = setTimeout(load, 250); });
-  document.getElementById("reset").onclick = () => { form.reset(); load(); };
-  load();
+  meta = await renderNav("wall");
+  form.category.insertAdjacentHTML("beforeend", (meta.categories || []).map(c => option(c, c)).join(""));
+  const h = new URLSearchParams(location.hash.slice(1));
+  if (h.get("days")) document.getElementById("days").value = h.get("days");
+  document.getElementById("days").onchange = () => { loadWeek(); history.replaceState(null, "", "#" + new URLSearchParams({ tab, days: document.getElementById("days").value })); };
+  document.querySelectorAll(".tab").forEach(b => b.onclick = () => setTab(b.dataset.tab));
+  form.addEventListener("change", loadList);
+  form.q.addEventListener("input", () => { clearTimeout(form._t); form._t = setTimeout(loadList, 250); });
+  document.getElementById("reset").onclick = () => { form.reset(); loadList(); };
+  loadWeek();
+  setTab(h.get("tab") === "news" ? "news" : "law");
 })();
 </script>
 </body>

@@ -40,7 +40,7 @@ def site(tmp_path_factory):
     st = process_pending(ParseContext(db=db, raw=raw, config=load_config()["parsing"]))
     assert st["ok"] == 3
     db.close()
-    store = Store(data / "intel.db", data)
+    store = Store(data / "intel.db", data, load_config()["parsing"]["product_impact"])
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(store))
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     yield store, f"http://127.0.0.1:{httpd.server_address[1]}", data
@@ -99,3 +99,18 @@ def test_tii_html_served_as_big5(site):
     raw = json.loads(get(base, "/api/labels?hidden=all")[2])["items"][0]["raw"]
     _, ctype, _ = get(base, raw)
     assert ctype == "text/html; charset=big5"
+
+
+def test_week_groups_and_product_impact(site):
+    store, base, _ = site
+    w = json.loads(get(base, "/api/week?days=7")[2])
+    assert w["as_of"] == "2026-09-21" and w["from"] == "2026-09-15"
+    assert w["counts"] == {"law": {"total": 2, "high": 1}, "news": {"total": 0, "high": 0}}
+    assert [i["title"] for i in w["focus"]] == ["投資型保險商品銷售應注意事項"]     # 高影響；產險那則不算
+    law = json.loads(get(base, "/api/labels?group=law&hidden=all")[2])
+    assert law["total"] == 2 and json.loads(get(base, "/api/labels?group=news")[2])["total"] == 0
+    item = next(i for i in law["items"] if i["impact"] == "high")
+    assert item["group"] == "law" and item["product_impact"]["scope"] == "全部投資型商品"
+    assert item["product_impact"]["competitor_count"] == 1            # 測試資料只有一個凱基商品（競品）
+    d = json.loads(get(base, f"/api/impact?raw_doc_id={item['raw_doc_id']}")[2])
+    assert d["product_impact"]["competitors"] == {"凱基人壽": 1} and d["product_impact"]["self_products"] == []

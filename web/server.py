@@ -9,7 +9,10 @@
 頁面：/（情報牆）、/compare.html（競品比較）。
 API（全部 GET、回 JSON）：
     /api/meta                     資料庫概況、篩選選項
-    /api/labels?impact=high,medium&category=&source=&q=&from=&to=&hidden=0|1|all&sort=impact|date&limit=
+    /api/week?days=7              本週要注意：最近 N 天的高影響／影響自家商品的項目＋商品動態
+    /api/labels?group=law|news&impact=high,medium&category=&source=&q=&from=&to=&hidden=0|1|all&sort=impact|date
+                                  每筆附 product_impact（對現有商品的影響摘要，D27）
+    /api/impact?raw_doc_id=       單筆的完整影響：自家受影響商品清單、各競品數量、建議檢視的條文
     /api/products?company=&line=&currency=TWD|FX&q=&status=&has_clause=1
     /api/product?company=&name=   單一商品：統一欄位＋出處＋待補欄位＋版本與改版差異
     /api/articles?raw_doc_id=     條款條文（條號、標題、頁碼、本文）
@@ -39,14 +42,17 @@ SOURCE_LABELS = {
     "company_kgi_products": "凱基人壽",
 }
 IMPACT_ORDER = "CASE impact WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END"
+GROUPS = {"law": ["tii_law_rss", "fsc_press", "fsc_penalty"], "news": ["news_rss"]}
+PRODUCT_EVENT_TYPES = ("product_launched", "product_discontinued", "doc_revised")
 
 
 class Store:
     """唯讀查詢。每次查詢開新的連線（ThreadingHTTPServer 多執行緒）。"""
 
-    def __init__(self, db_path: Path, data_dir: Path):
+    def __init__(self, db_path: Path, data_dir: Path, impact_rules: dict | None = None):
         self.db_path = Path(db_path)
         self.data_dir = Path(data_dir)            # raw_path（raw/…）相對於這個目錄
+        self.impact_rules = impact_rules or {}    # sources.yaml 的 parsing.product_impact（D27）
 
     @contextmanager
     def conn(self):
@@ -104,6 +110,10 @@ class Store:
         if q.get("source"):
             where.append("l.source_id = ?")
             args.append(q["source"])
+        if q.get("group") in GROUPS:
+            srcs = GROUPS[q["group"]]
+            where.append(f"l.source_id IN ({','.join('?' * len(srcs))})")
+            args += srcs
         if q.get("q"):
             where.append("l.title LIKE ?")
             args.append(f"%{q['q']}%")
@@ -126,21 +136,86 @@ class Store:
                       JOIN raw_docs r ON r.id = l.raw_doc_id WHERE {' AND '.join(where)}"""
             total = c.execute(f"SELECT COUNT(*) FROM ({sql})", args).fetchone()[0]
             rows = c.execute(f"{sql} ORDER BY {order} LIMIT ?", args + [limit]).fetchall()
-        items = []
-        for r in rows:
-            meta = json.loads(r["meta"] or "{}")
-            extra = {k: meta[k] for k in ("unit", "respondent", "fine_twd", "data_type", "feed", "doc_no")
-                     if meta.get(k) not in (None, "")}
-            items.append({
-                "raw_doc_id": r["raw_doc_id"], "source_id": r["source_id"],
-                "source": SOURCE_LABELS.get(r["source_id"], r["source_id"]),
-                "title": r["title"], "date": (r["published_at"] or "")[:10],
-                "categories": json.loads(r["categories"]), "impact": r["impact"],
-                "reasons": json.loads(r["reasons"]), "hidden": bool(r["hidden"]),
-                "url": r["url"], "raw": f"/{r['raw_path']}" if r["doc_type"] != "list_row" else None,
-                "extra": extra,
-            })
-        return {"total": total, "items": items}
+            products = self._products_for_impact(c)
+        return {"total": total, "items": [self._label_item(r, products) for r in rows]}
+
+    def _products_for_impact(self, c) -> list[dict[str, Any]]:
+        if "product_terms" not in self._tables(c):
+            return []
+        return [dict(r) for r in c.execute("SELECT company, name, line, currency, status FROM product_terms")]
+
+    def _label_item(self, r, products: list[dict[str, Any]], detail: bool = False) -> dict[str, Any]:
+        from parsers.impact import compute_impact, summary_line
+        meta = json.loads(r["meta"] or "{}")
+        extra = {k: meta[k] for k in ("unit", "respondent", "fine_twd", "data_type", "feed", "doc_no")
+                 if meta.get(k) not in (None, "")}
+        imp = compute_impact(r["title"], r["source_id"], products, self.impact_rules)
+        impact = {"summary": summary_line(imp), "self_count": len(imp["self"]),
+                  "competitor_count": sum(imp["competitors"].values()), "scope": imp["scope"],
+                  "untracked": imp["untracked"], "company_level": imp["company_level"], "articles": imp["articles"],
+                  "reasons": imp["reasons"]}
+        if detail:
+            impact.update(self_products=imp["self"], self_lines=imp["self_lines"], competitors=imp["competitors"],
+                          self_company=self.impact_rules.get("self_company"))
+        return {
+            "raw_doc_id": r["raw_doc_id"], "source_id": r["source_id"],
+            "source": SOURCE_LABELS.get(r["source_id"], r["source_id"]),
+            "group": next((g for g, s in GROUPS.items() if r["source_id"] in s), "other"),
+            "title": r["title"], "date": (r["published_at"] or "")[:10],
+            "categories": json.loads(r["categories"]), "impact": r["impact"],
+            "reasons": json.loads(r["reasons"]), "hidden": bool(r["hidden"]),
+            "url": r["url"], "raw": f"/{r['raw_path']}" if r["doc_type"] != "list_row" else None,
+            "extra": extra, "product_impact": impact,
+        }
+
+    def impact_detail(self, raw_doc_id: int) -> dict[str, Any] | None:
+        with self.conn() as c:
+            r = c.execute("""SELECT l.*, r.url, r.raw_path, r.doc_type, r.meta FROM doc_labels l
+                             JOIN raw_docs r ON r.id = l.raw_doc_id WHERE l.raw_doc_id=?""", (raw_doc_id,)).fetchone()
+            if r is None:
+                return None
+            return self._label_item(r, self._products_for_impact(c), detail=True)
+
+    # ------------------------------------------------------------ 本週要注意
+    def week(self, days: int = 7) -> dict[str, Any]:
+        """最近 N 天（以資料庫最新一筆日期為準，快照或重播時也不會是空的；D27）。"""
+        from datetime import date, timedelta
+        days = max(1, min(days, 90))
+        with self.conn() as c:
+            t = self._tables(c)
+            if "doc_labels" not in t:
+                return {"as_of": None, "focus": [], "product_events": [], "counts": {}}
+            ev_rows = c.execute(f"""SELECT type, payload, created_at FROM events
+                                    WHERE type IN ({','.join('?' * len(PRODUCT_EVENT_TYPES))})""",
+                                PRODUCT_EVENT_TYPES).fetchall()
+            pevents = []
+            for e in ev_rows:
+                pl = json.loads(e["payload"])
+                if e["type"] == "doc_revised" and not str(pl.get("source_id", "")).startswith("company_"):
+                    continue
+                pevents.append({"type": e["type"], "date": pl.get("replay_at") or e["created_at"][:10],
+                                "company": pl.get("company"), "title": pl.get("title"),
+                                "reconstructed": bool(pl.get("reconstructed")),
+                                "source_corrected": bool(pl.get("url_changed"))})
+            latest = c.execute("SELECT MAX(substr(published_at,1,10)) FROM doc_labels WHERE hidden=0").fetchone()[0]
+            as_of = max([d for d in [latest] + [p["date"] for p in pevents] if d] or [date.today().isoformat()])
+            start = (date.fromisoformat(as_of) - timedelta(days=days - 1)).isoformat()
+            rows = c.execute(f"""SELECT l.*, r.url, r.raw_path, r.doc_type, r.meta FROM doc_labels l
+                                 JOIN raw_docs r ON r.id = l.raw_doc_id
+                                 WHERE l.hidden=0 AND substr(l.published_at,1,10) BETWEEN ? AND ?
+                                 ORDER BY {IMPACT_ORDER}, l.published_at DESC""", (start, as_of)).fetchall()
+            products = self._products_for_impact(c)
+        items = [self._label_item(r, products) for r in rows]
+        # 本週要注意：高影響，或會影響自家商品的項目
+        focus = [i for i in items if i["impact"] == "high" or i["product_impact"]["self_count"]]
+        counts = {g: {"total": 0, "high": 0} for g in GROUPS}
+        for i in items:
+            if i["group"] in counts:
+                counts[i["group"]]["total"] += 1
+                counts[i["group"]]["high"] += i["impact"] == "high"
+        pev = sorted((p for p in pevents if start <= p["date"] <= as_of), key=lambda p: p["date"], reverse=True)
+        return {"as_of": as_of, "from": start, "days": days, "focus": focus, "counts": counts,
+                "product_events": pev, "self_company": self.impact_rules.get("self_company")}
 
     # ------------------------------------------------------------ 競品比較
     def products(self, q: dict[str, str]) -> dict[str, Any]:
@@ -265,6 +340,11 @@ def make_handler(store: Store):
                     return self._json(store.meta())
                 if u.path == "/api/labels":
                     return self._json(store.labels(q))
+                if u.path == "/api/week":
+                    return self._json(store.week(int(q.get("days") or 7)))
+                if u.path == "/api/impact":
+                    d = store.impact_detail(int(q.get("raw_doc_id", "0")))
+                    return self._json(d) if d else self._json({"error": "not found"}, 404)
                 if u.path == "/api/products":
                     return self._json(store.products(q))
                 if u.path == "/api/product":
@@ -307,7 +387,7 @@ def build_store(cfg: dict, db: str | None = None, snapshot: str | None = None) -
         data_dir = snap
     if db:
         db_path = Path(db)
-    return Store(db_path, data_dir)
+    return Store(db_path, data_dir, (cfg.get("parsing") or {}).get("product_impact"))
 
 
 def main(argv: list[str] | None = None) -> int:

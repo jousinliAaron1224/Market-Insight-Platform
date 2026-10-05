@@ -31,3 +31,9 @@ mark { background: #ffef8a; }
 .banner { padding: 8px; border: 1px solid #e0b000; background: #fff8dc; margin-bottom: 10px; }
 button { font-size: 14px; }
 .scroll { max-height: 420px; overflow: auto; border: 1px solid #ccc; }
+.tab { font-size: 16px; padding: 4px 14px; border: 1px solid #999; background: #f4f4f4; cursor: pointer; }
+.tab.on { background: #fff; border-bottom: 3px solid #111; font-weight: bold; }
+.detail { margin-top: 4px; }
+.detail > div { margin: 4px 0; }
+.namegrid { columns: 2; column-gap: 16px; max-height: 260px; overflow: auto; font-size: 12px; }
+.namegrid a { display: block; }

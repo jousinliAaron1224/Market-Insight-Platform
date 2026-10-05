@@ -9,7 +9,7 @@
 cd insurance-intel
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-pytest -q                                  # 109 個測試，全部離線（M3／M4 用實際下載的官網 PDF，約 75 秒）
+pytest -q                                  # 115 個測試，全部離線（M3／M4 用實際下載的官網 PDF，約 75 秒）
 
 python -m scheduler.run tii_law_rss -v     # 真的抓一輪（約 3 分鐘：50 筆內文，每筆間隔 3 秒）
 python -m scheduler.run --events           # 應該看到 50 筆 new_item
@@ -18,7 +18,7 @@ python -m scheduler.run --runs             # crawl_runs 健康紀錄
 
 python -m scheduler.run fsc_press -v      # 金管會新聞稿（約 1–2 分鐘）
 python -m scheduler.run fsc_penalty -v    # 金管會裁罰案件（1 個請求）
-python -m scheduler.run news_rss -v       # 中央社財經（工商時報暫停，見 D17）
+python -m scheduler.run news_rss -v       # 中央社財經＋自由時報財經（D26；工商時報暫停，見 D17）
 
 python -m scheduler.run --all             # 所有來源各跑一輪
 python -m scheduler.run --health          # 各來源最後成功時間、狀態與未解除警示
@@ -42,7 +42,7 @@ python -m web.server --snapshot demo-1005b    # 讀重播後的工作資料庫�
 
 只用 Python 標準庫，唯讀讀 SQLite，只綁本機位址。純 HTML＋原生 JavaScript（`web/static/`），不做設計，只求清楚能用。
 
-- **情報牆**（`/`）：依影響程度排序，可依影響程度／類別／來源／日期／標題篩選；「為什麼」展開命中原因與抓取時的原文存檔；可切換顯示預設隱藏項。
+- **情報牆**（`/`）：最上面是「本週要注意」（以資料最新日期往回 7 天，可切 14／30 天）：高影響、或會影響法巴自家商品的法規與新聞，以及期間內的商品上架／停售／改版。下面分「法規動態」（保發中心、金管會新聞稿、裁罰）與「新聞動態」兩個分頁，可依影響程度／類別／來源／日期／標題篩選，可只看影響自家商品的。每筆的「對現有商品的影響」與「細節」列出判定理由、自家受影響商品（依險種統計、點了到競品比較）、各競品受影響數、建議檢視條文（D27）。
 - **競品比較**（`/compare.html`）：篩選商品、勾選最多 4 個並排比較統一欄位，每個欄位附出處（條號、標題、頁碼），點了開原文 PDF 那一頁；「條文對照」依條文標題並排各家原文，可輸入關鍵字（例如「解約費用」）找出含該字的條文。比較結果的網址可以存起來或分享。
 
 ### 交給下游（M4）

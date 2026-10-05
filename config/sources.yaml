@@ -32,6 +32,35 @@ parsing:
     self_names: [法國巴黎, 法巴, Cardif, 巴黎人壽]
     life: [人身保險, 人壽, 壽險, '(?<![上下半今去明前每全])年金', 投資型, 健康保險, 傷害保險]
     property_only: [財產保險, 產物保險, 產險, 汽車, 機車, 地震, 住宅火災, 旅行不便, 登山, 巨災, 延誤保險, 水上, 車險, 火災]
+  # 法規／新聞 → 對現有商品的影響（D27，規則式、只比對標題，每筆附理由）
+  # scope: all ＝ 全部銷售中的投資型商品；line／currency 是收斂條件（同類取聯集、不同類取交集）
+  # untracked ＝ 影響的商品線目前沒收錄（M3 只有投資型）；company_level ＝ 公司層級事項，不對應個別商品
+  product_impact:
+    self_company: 法商法國巴黎人壽
+    no_product_sources: [fsc_penalty]        # 裁罰案只提示公司層級，不對應商品
+    exclude: [非投資型, 財產保險, 產物保險, 強制汽車, 機車, 地震, 旅行不便, 巨災, 再保險, 勞保, 國民年金, 勞退, 年金改革, 章程]
+    exclude_unless: [人身保險]               # 例如「財產保險業…及人身保險業辦理資訊公開…」仍要對應
+    rules:
+      - {match: '(?<!非)投資型|變額|專設帳簿|投資標的', scope: all, reason: 投資型商品規範}
+      - {match: '銀行保險|保險代理人|保險經紀人|招攬|銷售|行動服務|電子商務|業務員', scope: all, reason: 通路／銷售相關}
+      - {match: '人身保險業辦理資訊公開', scope: all, reason: 資訊公開規範}
+      - {match: '(?<![上下半今去明前每全])年金', line: [變額年金保險], reason: 年金型}
+      - {match: '萬能', line: [變額萬能壽險], reason: 萬能型}
+      - {match: '投資型人壽保險單示範條款', line: [變額壽險, 變額萬能壽險], reason: 投資型壽險示範條款}
+      - {match: '外幣(?!收付非投資型)', currency: foreign, reason: 外幣商品}
+      - {match: '利率變動型|利變', untracked: 利率變動型商品}
+      - {match: '外幣收付非投資型', untracked: 外幣非投資型商品}
+      - {match: '準備金利率', untracked: 傳統型與利率變動型新契約（責任準備金利率）}
+      - {match: '清償能力|自有資本|風險資本|ICS|IFRS', company_level: 資本與清償能力}
+      - {match: '裁罰|罰鍰|核處', company_level: 同業裁罰：檢視自家同類作業}
+    articles:                                 # 標題關鍵字 → 建議檢視的條文（示範條款標題）
+      示範條款: [保險範圍, 名詞定義, 除外責任, 契約的終止及其限制]
+      投資標的: [投資標的及配置比例約定, 投資標的之新增、關閉與終止, 投資標的轉換]
+      收益分配|撥回: ['投資標的之收益分配或提減(撥回)投資資產']
+      匯率|外幣(?!收付非投資型): [貨幣單位與匯率計算]
+      解約|終止: [契約的終止及其限制]
+      撤銷: [契約撤銷權]
+      保單借款|保險單借款: [保險單借款及契約效力的停止]
 
 sources:
   - id: tii_law_rss
@@ -133,6 +162,9 @@ sources:
         enabled: false
       - name: cna_finance        # 中央社財經；RSS 條款限非商業用途，正式上線需授權
         url: https://feeds.feedburner.com/rsscna/finance
+        keyword_filter: true
+      - name: ltn_business       # 自由時報財經（D26）；RSS 條款限非商業用途，黑客松 demo 可用，正式上線需授權
+        url: https://news.ltn.com.tw/rss/business.xml   # 取自自由時報 RSS 服務頁，2026-10-05 尚未在 Mac 實跑確認
         keyword_filter: true
     keywords: [保險, 壽險, 產險, 保單, 保費, 金管會]
     # 公關稿規則（只比對標題，命中即標 pr_noise，不丟棄）
