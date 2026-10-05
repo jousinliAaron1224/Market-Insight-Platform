@@ -6,33 +6,34 @@
 <title>商品規格書</title>
 <link rel="stylesheet" href="/style.css">
 <style>
-  .spec { max-width: 980px; margin: 0 auto; padding: 16px; background: var(--surface); }
-  .spec h1 { font-size: 22px; margin: 4px 0; }
-  .spec h2 { font-size: 16px; margin: 22px 0 6px; padding-bottom: 4px; border-bottom: 2px solid var(--ink); }
-  .spec .meta { font-size: 12px; color: var(--ink2); }
-  .spec table { font-size: 13px; }
-  .spec th, .spec td { border: 1px solid var(--grid); padding: 5px 8px; }
-  .spec th { background: #f1f0eb; width: 180px; position: static; }
-  .spec td.cmp { color: var(--ink2); font-size: 12px; width: 40%; }
-  .spec .empty { color: var(--bad); }
-  .spec ul { margin: 4px 0; padding-left: 20px; font-size: 13px; }
-  .spec .sub { font-size: 13px; font-weight: 600; margin: 10px 0 2px; }
-  .toolbar { max-width: 980px; margin: 10px auto 0; padding: 0 16px; display: flex; gap: 8px; }
-  .disclaimer { font-size: 12px; color: var(--ink2); background: #fbf8ee; border: 1px solid #eadfb8; padding: 8px 10px; border-radius: 6px; }
+  .spec-tbl th { width: 34%; background: transparent; color: var(--ink2); font-weight: 500; white-space: normal; }
+  .spec-tbl td.cmp { color: var(--ink2); font-size: 12.5px; width: 38%; }
+  .spec-tbl td { font-size: 14px; }
+  .spec-tbl .empty { color: var(--bad); }
+  .spec ul { margin: 4px 0; padding-left: 20px; font-size: 13.5px; }
+  .spec .sect-b .sub { font-size: 13px; font-weight: 650; margin: 12px 0 2px; color: var(--ink2); }
+  .disclaimer { font-size: 12.5px; color: var(--ink2); background: #fffbf0; border: 1px solid #f2e3b5; padding: 10px 12px; border-radius: var(--radius-sm); margin-bottom: 16px; }
   @media print {
-    nav, .toolbar { display: none; }
-    body.dash { background: #fff; }
-    .spec { padding: 0; }
-    .spec h2 { break-after: avoid; }
-    .spec table, .spec .mod { break-inside: avoid; }
-    a { color: inherit; text-decoration: none; }
+    nav, .page-actions { display: none !important; }
+    body { background: #fff; }
+    .detail { border: 0; box-shadow: none; grid-template-columns: 220px 1fr; }
+    .sect { break-inside: avoid; }
+    a { color: inherit; }
   }
 </style>
 </head>
-<body class="dash">
+<body>
 <nav id="nav"></nav>
-<div class="toolbar"><button onclick="print()" class="primary">列印／存成 PDF</button><a id="back" class="btn">← 回工作台</a></div>
-<article class="spec" id="spec"><p class="muted">載入中…</p></article>
+<main class="wrap spec">
+  <header class="page-h">
+    <div><h1 id="title">商品規格書</h1><div class="sub" id="sub"></div></div>
+    <div class="page-actions"><a id="back" class="btn">← 回工作台</a><button onclick="print()" class="primary" type="button">列印／存成 PDF</button></div>
+  </header>
+  <div class="detail">
+    <aside class="detail-side" id="side"></aside>
+    <div class="detail-main" id="spec"><p class="muted">載入中…</p></div>
+  </div>
+</main>
 <script src="/common.js"></script>
 <script>
 const LEVEL_ZH = { missing: "未填", warn: "要確認", info: "提醒" };
@@ -43,32 +44,49 @@ function cmpText(s) {
   if (s.kind === "range") return `${num(s.min, 1)}～${num(s.max, 1)}，中位數 ${num(s.median, 1)}（${s.n} 個）`;
   return s.counts.slice(0, 5).map(([k, n]) => `${esc(k.replace(/（.*）$/, ""))} ${n}`).join("、") + `（共 ${s.n} 個）`;
 }
+const MOD_ICON = { positioning: "target", underwriting: "user", benefits: "shield", investment: "trend", fees: "coins",
+                   rights: "file", exclusions: "alert", sales: "scale", filing: "calendar" };
+const metaItem = (ic, k, v, dim) => `<div class="meta-item">${icon(ic)}<div>${k ? `<div class="k">${esc(k)}</div>` : ""}<div class="v${dim ? " dim" : ""}">${v}</div></div></div>`;
 (async () => {
   await renderNav("lab");
   const id = new URLSearchParams(location.search).get("id");
   document.getElementById("back").href = `/#id=${id}`;
   const d = await getJSON(`/api/lab/spec?id=${id}`);
   document.title = `${d.draft.name}｜商品規格書`;
+  document.getElementById("title").textContent = d.draft.name;
+  document.getElementById("sub").textContent = "商品規格書（由商品工作台自動彙整）";
   const checks = d.checks;
-  const byMod = m => checks.filter(c => c.module === m);
-  const counts = ["missing", "warn", "info"].map(l => `${LEVEL_ZH[l]} ${checks.filter(c => c.level === l).length}`).join("｜");
-  let h = `<h1>${esc(d.draft.name)}</h1>
-    <div class="meta">險種：${esc(d.line || "未定")}｜建立 ${esc((d.draft.created_at || "").slice(0, 10))}｜最後修改 ${esc((d.draft.updated_at || "").slice(0, 16).replace("T", " "))}
-      ${d.draft.base ? `｜複製自 ${esc(d.draft.base.replace("|", "｜"))}` : ""}｜檢查：${counts}</div>
-    <p class="disclaimer">本文件由商品工作台自動彙整。「同險種競品」欄位是從各公司公開條款與附表自動擷取（${d.n_competitors} 個同險種商品），
-      法規名稱與適用條次待法遵核對；檢查項目只是提醒要確認的事項，不是法律意見。</p>`;
+  const cnt = l => checks.filter(c => c.level === l).length;
+  const f = Object.fromEntries(d.modules.flatMap(m => m.fields.map(x => [x.id, x.value])));
+  const total = d.modules.reduce((a, m) => a + m.fields.length, 0);
+  const done = d.modules.reduce((a, m) => a + m.fields.filter(x => fmtVal(x.value) != null).length, 0);
+  document.getElementById("side").innerHTML =
+    metaItem("hash", "草案編號", esc(d.draft.id))
+    + metaItem("layers", "險種", esc(d.line || "未定"), !d.line)
+    + metaItem("coins", "計價幣別", esc(fmtVal(f.currency) || "未定"), !fmtVal(f.currency))
+    + metaItem("building", "銷售通路", esc(fmtVal(f.channel) || "未定"), !fmtVal(f.channel))
+    + metaItem("check", "已填欄位", `${done} / ${total}`)
+    + metaItem("alert", "檢查事項", `<span class="tag red">要確認 ${cnt("warn")}</span> <span class="tag amber">未填 ${cnt("missing")}</span> <span class="tag">提醒 ${cnt("info")}</span>`)
+    + metaItem("grid", "同險種競品", `${d.n_competitors} 個商品`)
+    + (d.draft.base ? metaItem("link", "複製自", esc(d.draft.base.replace("|", "｜"))) : "")
+    + metaItem("calendar", "建立／最後修改", `${esc((d.draft.created_at || "").slice(0, 10))}<br><span class="small muted">${esc((d.draft.updated_at || "").slice(0, 16).replace("T", " "))} UTC</span>`);
+  let h = `<p class="disclaimer">「同險種競品」欄位是從各公司公開條款與附表自動擷取（${d.n_competitors} 個同險種商品）；
+      法規名稱與適用條次待法遵核對；檢查事項只是提醒要確認的地方，不是法律意見。</p>`;
   d.modules.forEach((m, i) => {
-    const c = byMod(m.id);
-    h += `<section class="mod"><h2>${i + 1}. ${esc(m.name)}</h2>
-      <table><thead><tr><th>項目</th><th>設定</th><th>同險種競品</th></tr></thead><tbody>
-      ${m.fields.map(f => { const v = fmtVal(f.value); return `<tr><th>${esc(f.label)}</th>
-        <td>${v == null ? '<span class="empty">未填</span>' : esc(v)}</td><td class="cmp">${f.competitors ? cmpText(f.competitors) : ""}</td></tr>`; }).join("")}
+    const c = checks.filter(x => x.module === m.id);
+    h += `<section class="sect"><div class="sect-h">${icon(MOD_ICON[m.id] || "file")}${i + 1}. ${esc(m.name)}
+        <span class="right">${m.fields.filter(x => fmtVal(x.value) != null).length}/${m.fields.length} 已填</span></div>
+      <div class="sect-b">
+      <table class="spec-tbl"><thead><tr><th>項目</th><th>設定</th><th>同險種競品</th></tr></thead><tbody>
+      ${m.fields.map(fd => { const v = fmtVal(fd.value); return `<tr><th>${esc(fd.label)}</th>
+        <td>${v == null ? '<span class="empty">未填</span>' : esc(v)}</td><td class="cmp">${fd.competitors ? cmpText(fd.competitors) : ""}</td></tr>`; }).join("")}
       </tbody></table>
-      ${m.note ? `<div class="sub">備註</div><p>${esc(m.note)}</p>` : ""}
-      ${c.length ? `<div class="sub">要確認的事項</div><ul>${c.map(x => `<li><b>${LEVEL_ZH[x.level]}</b>：${esc(x.msg)}${x.ref ? `（依據：${esc(x.ref)}）` : ""}</li>`).join("")}</ul>` : ""}
+      ${m.note ? `<div class="sub">備註</div><p style="margin:2px 0">${esc(m.note)}</p>` : ""}
+      ${c.length ? `<div class="sub">要確認的事項</div><div class="checks-box" style="margin-top:4px">${c.map(x => `<div class="chk chk-${x.level}"><span class="chk-tag">${LEVEL_ZH[x.level]}</span>
+          <span>${esc(x.msg)}${x.ref ? `<span class="src">依據：${esc(x.ref)}</span>` : ""}</span></div>`).join("")}</div>` : ""}
       <div class="sub">相關法規</div><ul>${m.regs.map(r => `<li>${esc(r.name)}<span class="muted">：${esc(r.note || "")}</span></li>`).join("")}</ul>
-      ${m.refs.length ? `<div class="sub">參考資料</div><ul>${m.refs.map(r => `<li>[${esc(KIND_ZH[r.kind] || r.kind)}] ${r.url ? `<a href="${esc(r.url)}">${esc(r.title)}</a>` : esc(r.title)}${r.note ? `<span class="muted">（${esc(r.note)}）</span>` : ""}</li>`).join("")}</ul>` : ""}
-      </section>`;
+      ${m.refs.length ? `<div class="sub">參考資料</div><ul>${m.refs.map(r => `<li><span class="pin-kind">${esc(KIND_ZH[r.kind] || r.kind)}</span> ${r.url ? `<a href="${esc(r.url)}">${esc(r.title)}</a>` : esc(r.title)}${r.note ? `<span class="muted">（${esc(r.note)}）</span>` : ""}</li>`).join("")}</ul>` : ""}
+      </div></section>`;
   });
   document.getElementById("spec").innerHTML = h;
 })();

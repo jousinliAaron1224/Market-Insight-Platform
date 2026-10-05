@@ -36,16 +36,58 @@ function highlight(text, kw) {
   return t.split(esc(kw)).join(`<mark>${esc(kw)}</mark>`);
 }
 
+// ---------------------------------------------------------------- 圖示（自繪線條圖示，24×24，跟著文字顏色）
+const ICONS = {
+  search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+  building: '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M9 7h2M13 7h2M9 11h2M13 11h2M9 15h2M13 15h2"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
+  coins: '<ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v6c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6"/>',
+  layers: '<path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 13 9 5 9-5"/>',
+  file: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z"/><path d="M14 3v6h6M8 13h8M8 17h6"/>',
+  scale: '<path d="M12 3v18M5 21h14M6 7h12"/><path d="m6 7-3 7a3 3 0 0 0 6 0Z"/><path d="m18 7-3 7a3 3 0 0 0 6 0Z"/>',
+  news: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 8h10M7 12h10M7 16h6"/>',
+  chart: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
+  trend: '<path d="m3 17 6-6 4 4 8-8"/><path d="M15 7h6v6"/>',
+  shield: '<path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6Z"/><path d="m9 12 2 2 4-4"/>',
+  alert: '<path d="M12 3 2 20h20Z"/><path d="M12 10v4M12 17h.01"/>',
+  info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>',
+  pin: '<path d="M12 21s7-6.2 7-12a7 7 0 0 0-14 0c0 5.8 7 12 7 12Z"/><circle cx="12" cy="9" r="2.5"/>',
+  bookmark: '<path d="M6 3h12v18l-6-4-6 4Z"/>',
+  plus: '<circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/>',
+  check: '<path d="m5 12 4 4 10-10"/>',
+  link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
+  filter: '<path d="M4 6h16M7 12h10M10 18h4"/>',
+  tag: '<path d="M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9Z"/><circle cx="8" cy="8" r="1.5"/>',
+  hash: '<path d="M5 9h14M5 15h14M10 4 8 20M16 4l-2 16"/>',
+  user: '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/>',
+  target: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/>',
+  print: '<path d="M6 9V3h12v6M6 18H4v-7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v7h-2"/><rect x="6" y="14" width="12" height="7"/>',
+  trash: '<path d="M4 7h16M9 7V4h6v3M6 7l1 14h10l1-14"/>',
+  grid: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
+  db: '<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>',
+  arrow: '<path d="M5 12h14M13 6l6 6-6 6"/>',
+};
+function icon(name, cls = "") {
+  return `<svg class="ic ${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name] || ""}</svg>`;
+}
+
+// ---------------------------------------------------------------- 上方導覽列
+const NAV = [["lab", "/", "商品工作台"], ["wall", "/wall.html", "情報牆"], ["compare", "/compare.html", "競品比較"], ["market", "/market.html", "市場數據"]];
 async function renderNav(here) {
   const nav = document.getElementById("nav");
-  nav.innerHTML = `<a href="/" class="${here === "lab" ? "here" : ""}">商品工作台</a><span class="nav-sep">資料來源：</span>`
-    + `<a href="/wall.html" class="${here === "wall" ? "here" : ""}">情報牆</a>`
-    + `<a href="/compare.html" class="${here === "compare" ? "here" : ""}">競品比較</a>`
-    + `<a href="/market.html" class="${here === "market" ? "here" : ""}">市場數據</a>`
-    + `<span class="db" id="dbinfo"></span>`;
+  nav.className = "topbar";
+  nav.innerHTML = `<div class="topbar-in">
+      <a class="brand" href="/">商品與市場情報平台</a>
+      <div class="topnav">${NAV.map(([k, href, zh], i) => (i === 1 ? '<span class="topnav-sep">資料來源</span>' : "")
+        + `<a href="${href}" class="${here === k ? "here" : ""}">${zh}</a>`).join("")}</div>
+      <div class="topright"><span class="dbchip" id="dbinfo" title="">${icon("db")}<span>資料庫</span></span></div>
+    </div>`;
+  document.querySelectorAll("[data-ic]").forEach(el => el.insertAdjacentHTML("afterbegin", icon(el.dataset.ic)));
   const m = await getJSON("/api/meta");
-  document.getElementById("dbinfo").textContent =
-    `資料庫：${m.db}｜事件 ${m.events}（未處理 ${m.pending}）`;
+  const db = document.getElementById("dbinfo");
+  db.title = m.db;
+  db.querySelector("span").textContent = `事件 ${m.events.toLocaleString()}｜未處理 ${m.pending}`;
   if (!m.parsed) {
     nav.insertAdjacentHTML("afterend",
       `<div class="banner">這個資料庫還沒解析。先在終端機跑 <code>python -m scheduler.run --parse</code>，再重新整理。</div>`);

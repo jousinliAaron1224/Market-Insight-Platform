@@ -6,59 +6,62 @@
 <title>商品工作台</title>
 <link rel="stylesheet" href="/style.css">
 </head>
-<body class="dash">
+<body>
 <nav id="nav"></nav>
 <main class="wrap">
-  <header class="lab-bar">
-    <div class="lab-title">
-      <h1>商品工作台</h1>
-      <span class="muted small">投資型商品｜依模組組裝，右邊同步看法規、競品、新聞、市場</span>
+  <header class="page-h" id="head">
+    <div style="min-width:0;flex:1">
+      <input id="draftName" class="title-input" aria-label="草案名稱" value="商品工作台" disabled>
+      <div class="sub" id="headSub">投資型商品｜依模組組裝，右邊同步看競品、法規、新聞、市場</div>
     </div>
-    <div class="lab-actions">
-      <label>草案 <select id="draftSel"></select></label>
-      <button id="btnNew">＋ 新增草案</button>
-      <a id="lnkSpec" class="btn" target="_blank">規格書</a>
-      <button id="btnDel" class="ghost">刪除</button>
-      <span id="saveState" class="small muted"></span>
+    <div class="page-actions">
+      <span class="save-state" id="saveState"></span>
+      <label class="fchip" id="draftPick"><span class="k">草案</span><select id="draftSel"></select></label>
+      <button id="btnNew" type="button"></button>
+      <button id="btnDel" type="button" class="ghost"></button>
+      <a id="lnkSpec" class="btn primary" target="_blank"></a>
     </div>
   </header>
 
   <section class="card" id="newForm" hidden>
-    <h2>新增商品草案</h2>
-    <div class="form-row"><label>名稱</label><input id="newName" placeholder="例：法巴 2027 美元變額年金"></div>
-    <div class="form-row"><label>起點</label>
-      <div>
-        <label class="inline"><input type="radio" name="start" value="blank" checked> 空白開始</label>
-        <label class="inline"><input type="radio" name="start" value="copy"> 從競品複製（自動帶入擷取到的欄位）</label>
+    <div class="sect"><div class="sect-h" id="newH">新增商品草案</div>
+    <div class="sect-b">
+      <div class="form-row"><label>名稱</label><input id="newName" placeholder="例：法巴 2027 美元變額年金" style="max-width:460px;width:100%"></div>
+      <div class="form-row"><label>起點</label>
+        <div class="chips" style="justify-content:flex-start;margin:0">
+          <label class="fchip"><input type="radio" name="start" value="blank" checked>空白開始</label>
+          <label class="fchip"><input type="radio" name="start" value="copy">從競品複製（自動帶入擷取到的欄位）</label>
+        </div>
       </div>
-    </div>
-    <div class="form-row" id="copyRow" hidden><label>競品</label>
-      <div class="copy-pick">
-        <select id="copyLine"><option value="">全部險種</option><option>變額年金保險</option><option>變額壽險</option><option>變額萬能壽險</option></select>
-        <input id="copyQ" placeholder="搜尋商品名稱">
-        <select id="copyProd" size="8"></select>
+      <div class="form-row" id="copyRow" hidden><label>競品</label>
+        <div class="copy-pick">
+          <select id="copyLine"><option value="">全部險種</option><option>變額年金保險</option><option>變額壽險</option><option>變額萬能壽險</option></select>
+          <input id="copyQ" type="search" placeholder="搜尋商品名稱">
+          <select id="copyProd" size="8"></select>
+        </div>
       </div>
-    </div>
-    <div class="form-row"><label></label><div><button id="btnCreate" class="primary">建立</button> <button id="btnCancel" class="ghost">取消</button></div></div>
+      <div class="form-row"><label></label><div style="display:flex;gap:8px"><button id="btnCreate" class="primary" type="button">建立</button><button id="btnCancel" class="ghost" type="button">取消</button></div></div>
+    </div></div>
   </section>
 
-  <section class="card" id="empty" hidden>
-    <h2>還沒有草案</h2>
-    <p>按「＋ 新增草案」開始。可以從空白開始，或從某個競品複製，再逐個模組調整。</p>
+  <section id="empty" hidden>
+    <div class="hero" style="padding:60px 0">
+      <h1>商品工作台</h1>
+      <p>把一張投資型商品拆成 9 個模組逐一設計；每個模組右邊同步看同險種競品、相關法規、新聞與市場數據，最後匯出規格書。</p>
+      <div style="margin-top:22px"><button class="primary" type="button" id="btnNew2">＋ 新增第一個草案</button></div>
+    </div>
   </section>
 
   <div class="lab" id="lab" hidden>
-    <div class="lab-left">
-      <section class="card steps" id="steps"></section>
-      <section class="card" id="form"></section>
-      <section class="card" id="pins"></section>
-    </div>
-    <div class="lab-right">
-      <section class="card ctx">
-        <div class="tabs" id="tabs"></div>
-        <div id="ctx"><p class="muted">載入中…</p></div>
-      </section>
-    </div>
+    <aside class="lab-steps" id="steps"></aside>
+    <section class="lab-form">
+      <div id="form"></div>
+      <div class="sect" style="margin-top:22px"><div class="sect-h" id="pinsH"></div><div class="sect-b" id="pins"></div></div>
+    </section>
+    <section class="lab-ctx">
+      <div class="subnav left" id="tabs"></div>
+      <div id="ctx"><p class="muted">載入中…</p></div>
+    </section>
   </div>
 </main>
 
@@ -86,7 +89,7 @@ async function loadDrafts(selectId) {
   $("draftSel").innerHTML = list.map(d => option(d.id, `${d.name}${d.line ? "（" + d.line + "）" : ""}`, d.id == selectId)).join("");
   $("empty").hidden = list.length > 0;
   $("lab").hidden = list.length === 0;
-  ["draftSel", "lnkSpec", "btnDel"].forEach(id => $(id).hidden = list.length === 0);
+  $("head").hidden = list.length === 0;
   if (!list.length) { S.draft = null; return; }
   await openDraft(selectId && list.some(d => d.id == selectId) ? selectId : list[0].id);
 }
@@ -108,7 +111,13 @@ async function loadCopyList() {
     option(`${x.company}|${x.name}`, `${short(x.company)}｜${x.name.replace(x.company, "")}（${x.first_date || "日期不明"}）`)).join("");
 }
 
+$("btnNew").innerHTML = icon("plus") + "新增草案";
+$("btnDel").innerHTML = icon("trash") + "刪除";
+$("lnkSpec").innerHTML = icon("print") + "規格書";
+$("newH").innerHTML = icon("plus") + "新增商品草案";
 $("btnNew").onclick = () => { $("newForm").hidden = false; $("newName").focus(); };
+$("btnNew2").onclick = () => { $("empty").hidden = true; $("newForm").hidden = false; $("newName").focus(); };
+$("draftName").onchange = e => { S.draft.name = e.target.value; scheduleSave(); loadDrafts(S.draft.id); };
 $("btnCancel").onclick = () => { $("newForm").hidden = true; };
 document.querySelectorAll('input[name="start"]').forEach(r => r.onchange = () => {
   const copy = document.querySelector('input[name="start"]:checked').value === "copy";
@@ -138,12 +147,12 @@ $("btnDel").onclick = async () => {
   S.draft = null;
   await loadDrafts();
 };
-function alertMsg(m) { $("saveState").textContent = m; $("saveState").className = "small warn"; }
+function alertMsg(m) { $("saveState").textContent = m; $("saveState").className = "save-state warn"; }
 
 // ================================================================ 儲存（自動）
 function scheduleSave(refreshCtx = false) {
   $("saveState").textContent = "未儲存…";
-  $("saveState").className = "small muted";
+  $("saveState").className = "save-state";
   clearTimeout(S.saveTimer);
   S.saveTimer = setTimeout(() => save(refreshCtx), 700);
 }
@@ -155,7 +164,8 @@ async function save(refreshCtx) {
   const nd = await r.json();
   S.draft.checks = nd.checks;
   S.draft.updated_at = nd.updated_at;
-  $("saveState").textContent = "已儲存 " + new Date().toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" });
+  $("saveState").innerHTML = icon("check") + " 已儲存 " + new Date().toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" });
+  renderHead();
   renderSteps();
   renderChecks();
   if (refreshCtx) loadContext();
@@ -166,20 +176,30 @@ function filled(m) {
   const f = S.draft.fields || {};
   return m.fields.filter(x => f[x.id] !== undefined && f[x.id] !== null && f[x.id] !== "" && !(Array.isArray(f[x.id]) && !f[x.id].length)).length;
 }
+const MOD_ICON = { positioning: "target", underwriting: "user", benefits: "shield", investment: "trend", fees: "coins",
+                   rights: "file", exclusions: "alert", sales: "scale", filing: "calendar" };
+function renderHead() {
+  const d = S.draft, f = d.fields || {};
+  $("draftName").disabled = false;
+  $("draftName").value = d.name;
+  const upd = (d.updated_at || "").slice(0, 16).replace("T", " ");
+  $("headSub").innerHTML = `<span class="chip">${icon("layers")}${esc(f.line || "險種未定")}</span>
+    ${(f.currency || []).length ? `<span class="chip">${icon("coins")}${esc(f.currency.join("、"))}</span>` : ""}
+    ${d.base ? `<span class="chip blue">${icon("link")}複製自 ${esc(d.base.split("|")[1] || d.base)}</span>` : ""}
+    <span class="small muted" style="margin-left:6px">最後修改 ${esc(upd)}（UTC）</span>`;
+}
 function renderSteps() {
   const ch = S.draft.checks || [];
-  $("steps").innerHTML = `<div class="step-name"><input id="draftName" value="${esc(S.draft.name)}" aria-label="草案名稱"></div>`
-    + S.modules.map((m, i) => {
+  $("steps").innerHTML = `<div class="steps-h">9 個模組</div>` + S.modules.map((m, i) => {
       const c = ch.filter(x => x.module === m.id);
-      const warn = c.filter(x => x.level !== "info").length;
-      return `<button class="step${m.id === S.module ? " on" : ""}" data-m="${m.id}">
-        <span class="step-no">${i + 1}</span><span class="step-label">${esc(m.name)}</span>
-        <span class="step-meta">${filled(m)}/${m.fields.length}${warn ? ` <span class="badge warnb">${warn}</span>` : ""}${c.length - warn ? ` <span class="badge infob">${c.length - warn}</span>` : ""}</span></button>`;
+      const warn = c.filter(x => x.level !== "info").length, n = filled(m);
+      return `<button type="button" class="step${m.id === S.module ? " on" : ""}${n === m.fields.length ? " done" : ""}" data-m="${m.id}">
+        <span class="step-no">${n === m.fields.length && m.id !== S.module ? icon("check") : i + 1}</span><span class="step-label">${esc(m.name)}</span>
+        <span class="step-meta">${n}/${m.fields.length}${warn ? ` <span class="badge warnb">${warn}</span>` : ""}${c.length - warn ? ` <span class="badge infob">${c.length - warn}</span>` : ""}</span></button>`;
     }).join("");
   $("steps").querySelectorAll(".step").forEach(b => b.onclick = () => {
     S.module = b.dataset.m; S.product = null; setHash(); renderAll(); loadContext();
   });
-  $("draftName").onchange = e => { S.draft.name = e.target.value; scheduleSave(); loadDrafts(S.draft.id); };
 }
 
 function fieldInput(fd, v) {
@@ -189,7 +209,7 @@ function fieldInput(fd, v) {
   if (fd.type === "select") return `<select id="${id}"><option value="">（未定）</option>${fd.options.map(o => option(o, o, v === o)).join("")}</select>`;
   if (fd.type === "bool") return `<select id="${id}">${option("", "（未定）", v == null)}${option("true", "是", v === true)}${option("false", "否", v === false)}</select>`;
   if (fd.type === "multi") return `<div class="checks" id="${id}">${fd.options.map(o =>
-    `<label class="inline"><input type="checkbox" value="${esc(o)}"${(v || []).includes(o) ? " checked" : ""}> ${esc(o)}</label>`).join("")}</div>`;
+    `<label><input type="checkbox" value="${esc(o)}"${(v || []).includes(o) ? " checked" : ""}>${esc(o)}</label>`).join("")}</div>`;
   return `<input id="${id}" value="${esc(v ?? "")}" placeholder="${esc(fd.placeholder || "")}">`;
 }
 function readField(fd) {
@@ -203,13 +223,13 @@ function readField(fd) {
 function renderForm() {
   const m = S.modules.find(x => x.id === S.module);
   const f = S.draft.fields || {};
-  $("form").innerHTML = `<h2>${S.modules.indexOf(m) + 1}. ${esc(m.name)}</h2><p class="cap">${esc(m.hint || "")}</p>
+  $("form").innerHTML = `<div class="form-h"><span class="no">${S.modules.indexOf(m) + 1}</span><h2>${esc(m.name)}</h2></div><p class="cap">${esc(m.hint || "")}</p>
     ${m.fields.map(fd => `<div class="fld"><label for="f_${fd.id}">${esc(fd.label)}${fd.required ? ' <span class="req">必填</span>' : ""}
       ${fd.feature ? '<span class="cmp-chip" title="右邊「競品」分頁有同險種的分布">有競品分布</span>' : ""}</label>${fieldInput(fd, f[fd.id])}</div>`).join("")}
     <div class="fld"><label for="note_m">這個模組的備註</label><textarea id="note_m" rows="2">${esc((S.draft.notes || {})[m.id] || "")}</textarea></div>
     <div id="mchecks"></div>
-    <div class="nav-btns">${S.modules.indexOf(m) > 0 ? '<button id="prevM" class="ghost">← 上一個模組</button>' : ""}
-      ${S.modules.indexOf(m) < S.modules.length - 1 ? '<button id="nextM">下一個模組 →</button>' : '<a class="btn" href="/spec.html?id=' + S.draft.id + '" target="_blank">看規格書 →</a>'}</div>`;
+    <div class="nav-btns">${S.modules.indexOf(m) > 0 ? '<button id="prevM" type="button" class="ghost">← 上一個模組</button>' : "<span></span>"}
+      ${S.modules.indexOf(m) < S.modules.length - 1 ? `<button id="nextM" type="button" class="primary">下一個：${esc(S.modules[S.modules.indexOf(m) + 1].name)} →</button>` : '<a class="btn primary" href="/spec.html?id=' + S.draft.id + '" target="_blank">看規格書 →</a>'}</div>`;
   for (const fd of m.fields) {
     const el = $(`f_${fd.id}`);
     el.addEventListener(fd.type === "multi" || fd.type === "select" || fd.type === "bool" ? "change" : "input", () => {
@@ -235,10 +255,11 @@ function renderChecks() {
 
 function renderPins() {
   const refs = (S.draft.refs || {})[S.module] || [];
-  $("pins").innerHTML = `<h3>這個模組釘選的參考（會列在規格書）</h3>` + (refs.length
+  $("pinsH").innerHTML = `${icon("bookmark")}釘選的參考<span class="right">會列在規格書</span>`;
+  $("pins").innerHTML = (refs.length
     ? `<ul class="pins">${refs.map((r, i) => `<li><span class="pin-kind">${esc(r.kind_zh || { product: "競品", article: "條文", reg: "法規", law: "法規動態", news: "新聞", market: "市場" }[r.kind] || "")}</span>
         ${r.url ? `<a href="${esc(r.url)}" target="_blank">${esc(r.title)}</a>` : esc(r.title)}${r.note ? `<span class="muted small">　${esc(r.note)}</span>` : ""}
-        <button class="ghost tiny" data-i="${i}" title="移除">×</button></li>`).join("")}</ul>`
+        <button class="ghost tiny" type="button" data-i="${i}" title="移除">×</button></li>`).join("")}</ul>`
     : '<p class="small muted">在右邊各分頁按「＋ 釘選」，把要引用的競品條文、法規、新聞、市場數據放進規格書。</p>');
   $("pins").querySelectorAll("button[data-i]").forEach(b => b.onclick = () => {
     S.draft.refs[S.module].splice(+b.dataset.i, 1); renderPins(); scheduleSave();
@@ -255,6 +276,7 @@ function pin(ref) {
 
 function renderAll() {
   setHash();
+  renderHead();
   renderSteps();
   renderForm();
   renderPins();
@@ -266,7 +288,7 @@ const TABS = [["comp", "競品"], ["law", "法規"], ["news", "新聞"], ["marke
 function renderTabs() {
   const c = S.ctx;
   const n = c ? { comp: c.competitors.n, law: c.regs.length + c.law.length, news: c.news.length, market: c.market.length } : {};
-  $("tabs").innerHTML = TABS.map(([k, z]) => `<button class="tab${S.tab === k ? " on" : ""}" data-t="${k}">${z}${c ? ` <span class="small muted">${n[k]}</span>` : ""}</button>`).join("");
+  $("tabs").innerHTML = TABS.map(([k, z]) => `<button type="button" class="tab${S.tab === k ? " on" : ""}" data-t="${k}">${z}${c ? `<span class="cnt">${n[k]}</span>` : ""}</button>`).join("");
   $("tabs").querySelectorAll(".tab").forEach(b => b.onclick = () => { S.tab = b.dataset.t; setHash(); renderTabs(); renderCtx(); });
 }
 

@@ -6,22 +6,23 @@
 <title>市場數據</title>
 <link rel="stylesheet" href="/style.css">
 </head>
-<body class="dash">
+<body>
 <nav id="nav"></nav>
 <main class="wrap">
-  <header class="page-h">
+  <header class="hero">
     <h1>市場數據</h1>
-    <p class="muted">三個問題：<b>供給面</b>（競品出手節奏）、<b>需求面</b>（市場往哪個險種移動）、<b>市占率與公司比較</b>（法巴在市場的位置）。每個結論都附資料來源；每張圖下方都可以展開表格。</p>
+    <p>三個問題：供給面（競品出手節奏）、需求面（市場往哪個險種移動）、市占率與公司比較（法巴在市場的位置）。每個結論都附資料來源，每張圖下方都可以展開表格。</p>
   </header>
+  <nav class="subnav" style="margin:18px 0 22px"><a href="#conc">重點結論</a><a href="#supply">供給面</a><a href="#demand">需求面</a><a href="#companies">市占率與公司比較</a></nav>
 
   <section class="kpis" id="kpis"></section>
 
-  <section class="card">
-    <h2>重點結論</h2>
-    <ul class="conc" id="conclusions"><li class="muted">載入中…</li></ul>
+  <section class="card" id="conc">
+    <div class="sect" style="margin:0"><div class="sect-h" data-ic="target">重點結論</div>
+    <div class="sect-b"><ul class="conc" id="conclusions"><li class="muted">載入中…</li></ul></div></div>
   </section>
 
-  <h2 class="sec">供給面：各家投資型商品的出手節奏</h2>
+  <h2 class="sec" id="supply" data-ic="layers">供給面：各家投資型商品的出手節奏</h2>
   <p class="sec-sub" id="supply-src"></p>
   <div class="grid2">
     <section class="card"><h3>近 12 個月新核准商品數</h3><p class="cap" id="cap-new"></p><div id="c-new"></div><div id="t-new"></div></section>
@@ -34,7 +35,7 @@
     <section class="card"><h3>最近 180 天新核准的商品</h3><p class="cap">點名稱到競品比較。</p><div id="recent"></div></section>
   </div>
 
-  <h2 class="sec">需求面：全市場保費收入依險種的趨勢</h2>
+  <h2 class="sec" id="demand" data-ic="trend">需求面：全市場保費收入依險種的趨勢</h2>
   <p class="sec-sub" id="demand-src"></p>
   <div id="demand-err"></div>
   <section class="card"><h3>每月保費收入（最近 24 個月，億元）</h3><p class="cap">滑鼠移到柱子上看各險種與年增率。</p><div id="c-month"></div><div id="l-month"></div><div id="t-month"></div></section>
@@ -45,7 +46,7 @@
   <section class="card"><h3>個人年金占全年保費的比重</h3><p class="cap" id="cap-ann"></p><div id="c-ann"></div><div id="t-ann"></div></section>
   <section class="card note" id="inv-ref" hidden></section>
 
-  <h2 class="sec">市占率與公司比較</h2>
+  <h2 class="sec" id="companies" data-ic="building">市占率與公司比較</h2>
   <p class="sec-sub" id="co-src"></p>
   <div id="co-err"></div>
   <div class="grid3" id="co-grid"></div>

@@ -8,28 +8,37 @@
 </head>
 <body>
 <nav id="nav"></nav>
-<h1>競品比較 <span class="small muted">勾選 2–4 個商品並排比較；每個欄位都附條款條號與頁碼，點了直接開原文 PDF 那一頁</span></h1>
+<main class="wrap">
+  <header class="hero">
+    <h1>競品比較</h1>
+    <p>選 2–4 個商品並排比較；每個欄位都附條款條號與頁碼，點了直接開原文 PDF 那一頁。</p>
+  </header>
+  <form id="f" onsubmit="return false" style="margin-top:22px">
+    <div class="searchbar">
+      <label>商品名稱<input type="search" name="q" placeholder="搜尋商品名稱，例如：鑫、美元、年金"></label>
+      <button type="button" class="go" id="goq" aria-label="搜尋"></button>
+    </div>
+    <div class="chips">
+      <label class="fchip"><span class="k">公司</span><select name="company"><option value="">全部</option></select></label>
+      <label class="fchip"><span class="k">險種</span><select name="line"><option value="">全部</option></select></label>
+      <label class="fchip"><span class="k">幣別</span><select name="currency"><option value="">全部</option><option value="TWD">新臺幣</option><option value="FX">外幣</option></select></label>
+      <label class="fchip"><span class="k">狀態</span><select name="status"><option value="">全部</option><option value="on_sale">銷售中</option><option value="discontinued">已停售</option></select></label>
+      <label class="fchip"><input type="checkbox" name="has_clause" value="1" checked>只看有條款的</label>
+    </div>
+  </form>
 
-<form class="filters" id="f" onsubmit="return false">
-  <label>公司 <select name="company"><option value="">全部</option></select></label>
-  <label>險種 <select name="line"><option value="">全部</option></select></label>
-  <label>幣別 <select name="currency"><option value="">全部</option><option value="TWD">新臺幣</option><option value="FX">外幣</option></select></label>
-  <label>狀態 <select name="status"><option value="">全部</option><option value="on_sale">銷售中</option><option value="discontinued">已停售</option></select></label>
-  <label>商品名稱 <input type="search" name="q" size="14"></label>
-  <label><input type="checkbox" name="has_clause" value="1" checked> 只看有條款的</label>
-</form>
+  <section class="list" style="margin-top:18px">
+    <div class="listhead">
+      <span id="pcount">載入中…</span>
+      <span class="right"><span class="small" id="picked" style="opacity:.9"></span>
+        <button id="clear" type="button">清除勾選</button>
+        <button id="go" type="button" disabled>並排比較</button></span>
+    </div>
+    <div id="plist" style="max-height:640px;overflow:auto"></div>
+  </section>
 
-<div><span id="pcount" class="small muted"></span>
-  <button id="go" disabled>並排比較</button> <button id="clear">清除勾選</button>
-  <span class="small" id="picked"></span></div>
-<div class="scroll" style="margin-top:6px">
-<table id="plist">
-  <thead><tr><th></th><th>公司</th><th>商品</th><th>險種</th><th>幣別</th><th>狀態</th><th>條文數</th><th>待補欄位</th><th>注意</th></tr></thead>
-  <tbody></tbody>
-</table>
-</div>
-
-<div id="result"></div>
+  <div id="result"></div>
+</main>
 
 <script src="/common.js"></script>
 <script>
@@ -50,37 +59,46 @@ function saveHash(extra = {}) {
 async function loadList() {
   const fd = new FormData(form);
   const data = await getJSON("/api/products?" + qs(Object.fromEntries(fd.entries())));
-  document.getElementById("pcount").textContent = `${data.total} 個商品`;
+  document.getElementById("pcount").textContent = `共 ${data.total} 個商品`;
   const sel = new Set(picked.map(key));
-  document.querySelector("#plist tbody").innerHTML = data.items.map(p => `
-    <tr>
-      <td><input type="checkbox" data-k="${esc(key(p))}" ${sel.has(key(p)) ? "checked" : ""}></td>
-      <td class="nowrap">${esc(p.company)}</td><td>${esc(p.name)}</td>
-      <td class="nowrap">${esc(p.line || "")}</td><td class="nowrap">${esc(curLabel(p.currency))}</td>
-      <td class="nowrap">${esc(STATUS_ZH[p.status] || p.status || "")}</td>
-      <td>${p.articles ?? '<span class="muted">—</span>'}</td>
-      <td class="small">${p.missing ? esc(p.missing.map(m => FIELD_ZH[m] || m).join("、")) : '<span class="muted">無條款</span>'}</td>
-      <td class="small warn">${esc((p.warnings || []).join("；"))}</td>
-    </tr>`).join("") || `<tr><td colspan="9" class="muted">沒有符合條件的商品</td></tr>`;
+  document.getElementById("plist").innerHTML = data.items.map(p => `
+    <div class="row${sel.has(key(p)) ? " picked" : ""}">
+      <div>
+        <span class="row-title" style="font-size:16.5px">${esc(p.name.replace(p.company, ""))}</span>
+        <div class="row-meta">
+          <span class="chip blue">${icon("building")}${esc(p.company)}</span>
+          <span class="chip">${icon("layers")}${esc(p.line || "險種未分類")}</span>
+          <span class="chip">${icon("coins")}${esc(curLabel(p.currency))}</span>
+          <span class="tag ${p.status === "discontinued" ? "red" : "green"}">${esc(STATUS_ZH[p.status] || p.status || "")}</span>
+          ${p.articles != null ? `<span class="tag">${p.articles} 條</span>` : '<span class="tag line">無條款</span>'}
+        </div>
+      </div>
+      <div class="row-side">
+        <div class="small muted">待補欄位</div>
+        <div>${p.missing ? (esc(p.missing.map(m => FIELD_ZH[m] || m).join("、")) || "無") : '<span class="muted">無條款</span>'}</div>
+        ${(p.warnings || []).length ? `<div class="small warn">${esc(p.warnings.join("；"))}</div>` : ""}
+      </div>
+      <div class="row-act"><button type="button" class="${sel.has(key(p)) ? "primary" : "soft"} tiny pickb" data-k="${esc(key(p))}">${sel.has(key(p)) ? icon("check") + "已加入" : icon("plus") + "加入比較"}</button></div>
+    </div>`).join("") || `<div class="row-empty">沒有符合條件的商品</div>`;
 }
 
 function updatePicked() {
-  document.getElementById("picked").textContent = picked.length ? "已選：" + picked.map(p => p.name).join("、") : "";
+  document.getElementById("picked").textContent = picked.length ? `已選 ${picked.length}／${MAX}：` + picked.map(p => p.name.replace(p.company, "")).join("、") : "";
   document.getElementById("go").disabled = picked.length < 1;
   document.getElementById("go").textContent = `並排比較（${picked.length}）`;
 }
 
-document.querySelector("#plist").addEventListener("change", e => {
-  const cb = e.target.closest("input[type=checkbox]");
-  if (!cb) return;
-  const [company, name] = cb.dataset.k.split("|");
-  if (cb.checked) {
-    if (picked.length >= MAX) { cb.checked = false; alert(`最多比較 ${MAX} 個商品`); return; }
-    picked.push({ company, name });
+document.getElementById("plist").addEventListener("click", e => {
+  const b = e.target.closest(".pickb");
+  if (!b) return;
+  const [company, name] = b.dataset.k.split("|");
+  if (picked.some(p => key(p) === b.dataset.k)) {
+    picked = picked.filter(p => key(p) !== b.dataset.k);
   } else {
-    picked = picked.filter(p => key(p) !== cb.dataset.k);
+    if (picked.length >= MAX) { alert(`最多比較 ${MAX} 個商品`); return; }
+    picked.push({ company, name });
   }
-  updatePicked(); saveHash();
+  updatePicked(); saveHash(); loadList();
 });
 
 // ---------------- 欄位並排 ----------------
@@ -126,9 +144,10 @@ const ROWS = [
 ];
 
 function renderFields() {
-  const head = `<tr><th class="field"></th>${current.map(p => `<th style="position:static">${esc(p.company)}<br>${esc(p.name)}</th>`).join("")}</tr>`;
+  const head = `<tr><th class="field"></th>${current.map(p => `<th style="position:static;white-space:normal"><span class="small muted">${esc(p.company)}</span><br>${esc(p.name.replace(p.company, ""))}</th>`).join("")}</tr>`;
   const body = ROWS.map(([label, f]) => `<tr><th class="field">${esc(label)}</th>${current.map(p => `<td>${f(p)}</td>`).join("")}</tr>`).join("");
-  return `<h2>欄位並排</h2><table class="cmp">${head}${body}</table>`;
+  return `<section class="card" style="margin-top:22px"><div class="sect"><div class="sect-h">${icon("grid")}欄位並排<span class="right">出處連到原文 PDF 那一頁</span></div>
+    <div class="sect-b" style="overflow-x:auto"><table class="cmp">${head}${body}</table></div></div></section>`;
 }
 
 // ---------------- 條文對照 ----------------
@@ -163,11 +182,10 @@ function renderArticleControls(sel, kw) {
   const { titles, count } = titleOptions(kw);
   const opts = [option("__preamble__", "條款前言（商品名稱、給付項目、文號）", sel === "__preamble__")]
     .concat(titles.map(t => option(t, `${t}（${count[t]}/${current.length}）`, t === sel)));
-  return `<h2>條文對照</h2>
-    <div class="filters">
-      <label>條文 <select id="artsel">${opts.join("")}</select></label>
-      <label>找含這個字的條文 <input type="search" id="artkw" size="12" value="${esc(kw || "")}"></label>
-      <span class="small muted">括號內是幾個商品有這一條；條文標題來自示範條款，各家大多一致</span>
+  return `<div class="sect-h">${icon("file")}條文對照<span class="right">括號內是幾個商品有這一條；條文標題來自示範條款，各家大多一致</span></div>
+    <div class="chips" style="justify-content:flex-start;margin:12px 0">
+      <label class="fchip"><span class="k">條文</span><select id="artsel">${opts.join("")}</select></label>
+      <label class="fchip">${icon("search")}<input type="search" id="artkw" size="16" placeholder="找含這個字的條文" value="${esc(kw || "")}"></label>
     </div>`;
 }
 
@@ -183,7 +201,7 @@ function renderArticles(sel, kw) {
     }).join("<hr>") + "</td>";
   });
   const head = `<tr>${current.map(p => `<th style="position:static">${esc(p.name)}</th>`).join("")}</tr>`;
-  return `<table class="cmp">${head}<tr>${cells.join("")}</tr></table>`;
+  return `<div style="overflow-x:auto"><table class="cmp">${head}<tr>${cells.join("")}</tr></table></div>`;
 }
 
 function drawArticles(sel, kw) {
@@ -206,12 +224,12 @@ function drawArticles(sel, kw) {
 
 async function compare(initialArt, initialKw) {
   const res = document.getElementById("result");
-  res.innerHTML = '<p class="muted">載入中…</p>';
+  res.innerHTML = '<div class="row-empty">載入中…</div>';
   current = await Promise.all(picked.map(p => getJSON("/api/product?" + qs({ company: p.company, name: p.name }))));
   await Promise.all(current.filter(p => p.clause && !articles[p.clause.raw_doc_id]).map(async p => {
     articles[p.clause.raw_doc_id] = await getJSON("/api/articles?raw_doc_id=" + p.clause.raw_doc_id);
   }));
-  res.innerHTML = renderFields() + '<div id="arts"></div>';
+  res.innerHTML = renderFields() + '<section class="card"><div class="sect" id="arts"></div></section>';
   drawArticles(initialArt || (current.some(p => titlesOf(p).includes("保險範圍")) ? "保險範圍" : "__preamble__"), initialKw || "");
   res.scrollIntoView({ behavior: "smooth" });
 }
@@ -224,6 +242,8 @@ document.getElementById("clear").onclick = () => { picked = []; updatePicked(); 
   form.company.insertAdjacentHTML("beforeend", (m.companies || []).map(c => option(c, c)).join(""));
   form.line.insertAdjacentHTML("beforeend", (m.lines || []).map(c => option(c, c)).join(""));
   form.addEventListener("change", loadList);
+  document.getElementById("goq").innerHTML = icon("search");
+  document.getElementById("goq").onclick = loadList;
   form.q.addEventListener("input", () => { clearTimeout(form._t); form._t = setTimeout(loadList, 250); });
   // 從網址還原（可以把比較結果的網址存起來或傳給別人）
   const h = new URLSearchParams(location.hash.slice(1));
