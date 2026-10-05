@@ -153,6 +153,13 @@ sources:
     schedule: "20 6 * * 1"       # 月報資料，每週一檢查一次就夠
     adapter: adapters.open_data:OpenDataAdapter
     domain: data.gov.tw
+    # 資料集的實際下載點不在 data.gov.tw：
+    # - stat.fsc.gov.tw（14539）憑證缺 Subject Key Identifier → 只關格式嚴格檢查（D15）
+    # - openapi.tii.org.tw（104113）沒送中繼憑證 → 補簽發者憑證（D7）：
+    #   sh scripts/fetch_issuer_cert.sh openapi.tii.org.tw
+    # 憑證鏈與主機名稱都照常驗證，不關 TLS 驗證。
+    x509_strict: false
+    extra_ca_files: [config/certs/openapi.tii.org.tw.pem]
     datasets:
       - {id: 14539, name: lia_performance, purpose: demand, note: 壽險業績統計（壽險公會）：新契約保費依險種}
       - {id: 104113, name: ib_premium_monthly, purpose: share, note: 人身保險業保費收入統計表（月報，保險局）：依公司別}

@@ -25,6 +25,36 @@ class RobotsDisallowed(Exception):
     pass
 
 
+class TLSVerifyError(Exception):
+    """TLS 憑證驗證失敗：設定問題，不是暫時性錯誤，所以不重試（D18）。"""
+
+
+def _cert_verify_failure(e: BaseException) -> ssl.SSLCertVerificationError | None:
+    """httpx 把 ssl 例外包在 ConnectError 裡；沿著 __cause__／__context__ 找。"""
+    seen = set()
+    cur: BaseException | None = e
+    while cur is not None and id(cur) not in seen:
+        seen.add(id(cur))
+        if isinstance(cur, ssl.SSLCertVerificationError):
+            return cur
+        cur = cur.__cause__ or cur.__context__
+    if "CERTIFICATE_VERIFY_FAILED" in str(e):
+        return ssl.SSLCertVerificationError(str(e))
+    return None
+
+
+def tls_hint(host: str, reason: str) -> str:
+    """依失敗原因給出既有決策的修法（D7 補簽發者憑證／D15 關 X.509 格式嚴格檢查）。"""
+    if "Subject Key Identifier" in reason or "Authority Key Identifier" in reason:
+        fix = "憑證缺少 Key Identifier 欄位：在這個來源設定 x509_strict: false（D15，憑證鏈與主機名稱仍驗證）"
+    elif "local issuer" in reason or "issuer certificate" in reason:
+        fix = (f"伺服器沒送中繼憑證：執行 sh scripts/fetch_issuer_cert.sh {host}，"
+               f"再把 config/certs/{host}.pem 加到這個來源的 extra_ca_files（D7）")
+    else:
+        fix = "請檢查憑證；不要關閉 TLS 驗證"
+    return f"{host} TLS 憑證驗證失敗（{reason}）。{fix}"
+
+
 @dataclass
 class RetryPolicy:
     """網路錯誤依退避秒數重試（Handbook「可靠性與監控」）。
@@ -66,7 +96,7 @@ def build_ssl_context(extra_ca_files: list[str | Path] | None = None,
         path = Path(f)
         if not path.is_file():
             raise FileNotFoundError(
-                f"找不到補充憑證 {path}；請先執行 scripts/fetch_issuer_cert.sh（見 README）")
+                f"找不到補充憑證 {path}；請先執行 sh scripts/fetch_issuer_cert.sh {path.stem}（見 README）")
         ctx.load_verify_locations(cafile=str(path))
     return ctx
 
@@ -117,6 +147,10 @@ class PoliteClient:
                     resp.raise_for_status()
                 return resp
             except (httpx.TransportError, _Retryable) as e:
+                bad = _cert_verify_failure(e)
+                if bad is not None:          # 設定問題，重試也一樣失敗
+                    reason = getattr(bad, "verify_message", None) or str(bad)
+                    raise TLSVerifyError(tls_hint(urlsplit(url).hostname or domain, reason)) from e
                 if attempt >= self.retry.max:
                     raise
                 attempt += 1

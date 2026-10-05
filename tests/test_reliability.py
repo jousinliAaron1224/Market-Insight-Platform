@@ -106,3 +106,32 @@ def test_min_interval_enforced():
     with lim.slot("x"):
         pass
     assert slept == [2.0]
+
+
+def test_tls_cert_failure_is_not_retried():
+    import ssl
+    from core.http import TLSVerifyError
+
+    calls = []
+
+    def handler(req):
+        calls.append(req.url)
+        err = ssl.SSLCertVerificationError(1, "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: "
+                                              "unable to get local issuer certificate (_ssl.c:1032)")
+        err.verify_message = "unable to get local issuer certificate"
+        try:
+            raise err
+        except ssl.SSLError as e:
+            raise httpx.ConnectError(str(e), request=req) from e
+
+    c, sleeps = client(handler)
+    with pytest.raises(TLSVerifyError) as ei:
+        c.get("https://openapi.tii.org.tw/x", respect_robots=False)
+    assert len(calls) == 1 and sleeps == []
+    msg = str(ei.value)
+    assert "fetch_issuer_cert.sh openapi.tii.org.tw" in msg and "extra_ca_files" in msg
+
+
+def test_tls_hint_missing_ski_points_to_x509_strict():
+    from core.http import tls_hint
+    assert "x509_strict: false" in tls_hint("stat.fsc.gov.tw", "Missing Subject Key Identifier")
