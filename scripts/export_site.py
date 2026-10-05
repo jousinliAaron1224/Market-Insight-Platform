@@ -64,6 +64,8 @@ def page_html(name: str, main: bool) -> str:
     s = re.sub(r'(["\'`])/#', r'\1index.html#', s)
     s = s.replace('<a id="lnkSpec" class="btn primary" target="_blank">', '<a id="lnkSpec" class="btn primary">')
     s = s.replace('\'" target="_blank">看規格書 →</a>\'', '\'">看規格書 →</a>\'')
+    if main:   # 發佈後的頁面名稱用平台名稱
+        s = s.replace("<title>商品工作台</title>", "<title>商品與市場情報平台</title>", 1)
     if main:   # 資料來源頁在主頁的框架裡開（共用資料庫只有主頁拿得到）
         s = s.replace('<nav id="nav"></nav>', '<nav id="nav"></nav>\n<iframe id="srcFrame" class="src-frame" title="資料來源" hidden></iframe>', 1)
     if main:   # 主頁由 Artifact 加上外框：拿掉自己的 doctype/html/head/body
