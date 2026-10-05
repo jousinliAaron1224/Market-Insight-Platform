@@ -9,7 +9,7 @@
 cd insurance-intel
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-pytest -q                                  # 67 個測試，全部離線（M3 用實際下載的官網 PDF，約 50 秒）
+pytest -q                                  # 96 個測試，全部離線（M3／M4 用實際下載的官網 PDF，約 75 秒）
 
 python -m scheduler.run tii_law_rss -v     # 真的抓一輪（約 3 分鐘：50 筆內文，每筆間隔 3 秒）
 python -m scheduler.run --events           # 應該看到 50 筆 new_item
@@ -24,7 +24,30 @@ python -m scheduler.run --all             # 所有來源各跑一輪
 python -m scheduler.run --health          # 各來源最後成功時間、狀態與未解除警示
 python -m scheduler.run --serve           # 常駐排程，依 sources.yaml 的 cron 自動跑（Ctrl+C 結束）
 python -m scheduler.run --products        # 各公司投資型商品數、最近上架／停售
+
+python -m scheduler.run --parse -v        # M4 解析層：消化未處理事件（條款結構化、新聞／法規分類）
+python -m scheduler.run --terms           # 統一商品 schema：各公司已解析條款與欄位覆蓋
+python -m scheduler.run --labels          # 分類結果，依影響程度排序
+
+python -m demo.snapshot create demo-1004 --zip   # demo 快照（先跑 --parse）
+python -m demo.replay demo-1004 --delay 0.8      # 從快照重播過去 90 天
 ```
+
+### 交給下游（M4）
+
+決策見 Handbook D22–D24。
+
+- **解析層**（`parsers/`）：`pipeline.process_pending()` 依序消化 `events`，交給 handler：
+  - `clause`：company_* 的條款 PDF → `clause_docs`（統一 schema 欄位、出處、待補欄位）、`clause_articles`（條號／標題／本文／頁碼）、`product_terms`；doc_revised 另寫 `clause_diffs`（逐條差異）
+  - `classify`：保發中心、金管會、裁罰、新聞 → `doc_labels`（商品／利率／法規／通路／人事＋高／中／低、可解釋的命中原因、預設隱藏）
+  - `product`：product_launched／discontinued → `product_terms.status`
+  - 失敗會重試，同一事件 3 次失敗標 failed 並發 `parser` 警示；`--serve` 每 10 分鐘自動跑一次
+- **純規則、LLM 介面預留**：`parsers.base.Enricher`。sources.yaml 的 `parsing.llm` 指定實作後，只能補 `missing` 內的欄位且必須附出處條號。
+- **條款解析**（`parsers/clause_pdf.py`）：法巴雙欄自動偵測；去頁首頁尾；條號必須連續（避免把行首的「第十九條約定…」當新條文）；欄位都記條號與頁碼。投保年齡不在條款（在要保規則），目前一律列為待補。
+- **分類規則**在 sources.yaml 的 `parsing.classify`，關鍵字是正規表示式（「上半年金融」不算年金、「非投資型」不算投資型）。
+- **快照**（`demo/snapshot.py`）：`data/snapshots/<名稱>/` 含資料庫線上備份、引用到的 raw 檔與 manifest（sha256）；不可覆蓋，`verify` 檢查完整性；新聞導言預設不帶（D16）。
+- **重播**（`demo/replay.py`）：在 `data/replay/<快照>/` 的工作副本上，依真實日期重建過去 N 天：文字來源依發布日；商品依清單 PDF 的首次核准日重建上架、依最近修正日重建條款改版（標 `reconstructed`）。查結果：`python -m scheduler.run --db data/replay/<快照>/intel.db --labels`。
+- 已知問題：台灣人壽有 10 個商品被對應到「投資標的…批註條款」而不是主約條款（M3 clause_index）。解析層會標警告、不採用其欄位；待 M4 之後修正。
 
 ### 競品商品資料（M3）
 
@@ -80,6 +103,11 @@ sh scripts/fetch_issuer_cert.sh law.tii.org.tw   # 產生 config/certs/law.tii.o
 | `config/sources.yaml` | 所有來源設定 |
 | `scheduler/run.py` | CLI：單一來源、`--all`、`--serve`（APScheduler）、`--health` |
 | `core/health.py` | 健康檢查與警示（alerts 表） |
+| `parsers/pipeline.py` | M4：事件消費者（重試、失敗警示） |
+| `parsers/clause_pdf.py`、`parsers/clause.py` | 條款 PDF 結構化、統一商品 schema、逐條 diff |
+| `parsers/classify.py` | 新聞／法規分類與影響程度 |
+| `parsers/base.py` | `ParseContext`、LLM 補強介面 `Enricher` |
+| `demo/snapshot.py`、`demo/replay.py` | demo 快照與重播 |
 
 ## M1 決策紀錄（2026-10-02，Handbook 未定義、經 Chris 確認）
 

@@ -9,6 +9,9 @@
     python -m scheduler.run --events               # 列出未處理事件
     python -m scheduler.run --runs                 # 列出最近的 crawl_runs
     python -m scheduler.run --products             # 各公司投資型商品數與最近上架／停售
+    python -m scheduler.run --parse                # 解析層：消化未處理事件（條款結構化、分類）
+    python -m scheduler.run --terms                # 統一商品 schema（條款解析結果）
+    python -m scheduler.run --labels               # 新聞／法規分類結果（依影響程度）
 """
 from __future__ import annotations
 
@@ -73,6 +76,32 @@ def run_once(source_id: str, refetch: bool = False, config_path: str | None = No
         db.close()
 
 
+def parse_context(cfg: dict, db: Database):
+    from parsers.base import ParseContext, load_enricher
+    pcfg = cfg.get("parsing", {}) or {}
+    return ParseContext(db=db, raw=RawStore(resolve(cfg["defaults"]["raw_root"])), config=pcfg,
+                        enricher=load_enricher(pcfg.get("llm")))
+
+
+def parse_once(cfg: dict, on_event=None, limit: int | None = None) -> dict[str, int]:
+    """解析層：消化所有未處理事件（M4，D22）。"""
+    from parsers.pipeline import process_pending
+    db = open_db(cfg)
+    try:
+        return process_pending(parse_context(cfg, db), on_event=on_event, limit=limit)
+    finally:
+        db.close()
+
+
+def parse_job(cfg: dict) -> None:
+    try:
+        s = parse_once(cfg)
+        level = logging.WARNING if s["error"] or s["failed"] else logging.INFO
+        log.log(level, "parse: ok=%d skipped=%d error=%d failed=%d", s["ok"], s["skipped"], s["error"], s["failed"])
+    except Exception:
+        log.exception("parse: job crashed")
+
+
 def run_job(source_id: str, cfg: dict, limiter: DomainRateLimiter) -> None:
     """排程器呼叫的工作：任何例外都只記錄，不讓排程器停止。"""
     try:
@@ -92,11 +121,16 @@ def build_scheduler(cfg: dict, limiter: DomainRateLimiter | None = None):
     tz = cfg.get("defaults", {}).get("timezone", "Asia/Taipei")
     sources = implemented_sources(cfg)
     limiter = limiter or shared_limiter(cfg)
-    sched = BlockingScheduler(timezone=tz, executors={"default": ThreadPoolExecutor(max(1, len(sources)))})
+    sched = BlockingScheduler(timezone=tz, executors={"default": ThreadPoolExecutor(max(1, len(sources)) + 1)})
     for sid in sources:
         expr = source_config(cfg, sid)["schedule"]
         sched.add_job(run_job, CronTrigger.from_crontab(expr, timezone=tz), args=[sid, cfg, limiter],
                       id=sid, name=sid, max_instances=1, coalesce=True, misfire_grace_time=600)
+    pexpr = (cfg.get("parsing") or {}).get("schedule")
+    if pexpr:  # 解析層：定時消化事件，不跟爬蟲綁在同一個工作裡
+        sched.add_job(parse_job, CronTrigger.from_crontab(pexpr, timezone=tz), args=[cfg],
+                      id="parse_events", name="parse_events", max_instances=1, coalesce=True,
+                      misfire_grace_time=600)
     return sched
 
 
@@ -140,11 +174,18 @@ def _local(ts: str | None, tz: str) -> str:
 
 
 def print_health(db: Database, sources: list[str], tz: str = "Asia/Taipei") -> None:
+    w = max([len(s) for s in sources] + [12])  # 欄寬依最長的 source_id（company_*_products 較長）
     for s in health.summary(db, sources):
-        print(f"{s['source_id']:<12} 狀態 {s['last_status']:<8} 最後執行 {_local(s['last_run'], tz)}  "
+        print(f"{s['source_id']:<{w}} 狀態 {s['last_status']:<8} 最後執行 {_local(s['last_run'], tz)}  "
               f"最後成功 {_local(s['last_success'], tz)}  上輪 listed={s['last_listed']} new={s['last_new']}")
         for a in s["open_alerts"]:
             print(f"    ⚠ {a['kind']} ×{a['occurrences']}：{a['message']}")
+    # 解析層（M4）：未處理事件數與解析失敗警示
+    pending = db.conn.execute("SELECT COUNT(*) FROM events WHERE processed=0").fetchone()[0]
+    failed = db.conn.execute("SELECT COUNT(*) FROM event_processing WHERE status='failed'").fetchone()[0]
+    print(f"{'parser':<{w}} 未處理事件 {pending}  解析失敗 {failed}")
+    for a in health.summary(db, ["parser"])[0]["open_alerts"]:
+        print(f"    ⚠ {a['kind']} ×{a['occurrences']}：{a['message']}")
 
 
 def print_products(db: Database) -> None:
@@ -162,17 +203,65 @@ def print_products(db: Database) -> None:
         print(f"  {mark} {e['created_at'][:10]} {pl.get('company')} {pl.get('title')}")
 
 
+def print_event_line(ev: dict, status: str, summary: dict) -> None:
+    """解析一筆事件後的一行摘要（--parse -v 與重播共用）。"""
+    pl = ev["payload"]
+    if status not in ("ok",):
+        extra = summary.get("error", "") if summary else ""
+        print(f"  #{ev['id']:<5} {ev['type']:<20} {status:<7} {pl.get('title') or pl.get('item_key')} {extra}")
+        return
+    if "impact" in summary:
+        tag = f"[{summary['impact']}] {'/'.join(summary.get('categories') or ['未分類'])}"
+        if summary.get("hidden"):
+            tag += "（隱藏）"
+    elif "articles" in summary:
+        tag = f"條款 {summary['articles']} 條，欄位 {summary.get('fields', 0)}，缺 {len(summary.get('missing', []))}"
+        if summary.get("diff"):
+            d = summary["diff"]
+            tag += f"；改版：改 {len(d['changed'])} 條、增 {len(d['added'])}、刪 {len(d['removed'])}"
+    elif "status" in summary:
+        tag = {"on_sale": "＋上架", "discontinued": "－停售"}[summary["status"]]
+    else:
+        tag = ""
+    print(f"  #{ev['id']:<5} {ev['type']:<20} {tag}  {pl.get('title')}")
+
+
+def print_terms(db: Database) -> None:
+    rows = db.conn.execute(
+        """SELECT company, COUNT(*) n, SUM(clause_raw_doc_id IS NOT NULL) parsed,
+                  SUM(coverage IS NOT NULL AND coverage!='[]') cov, SUM(exclusions IS NOT NULL) exc,
+                  SUM(payment_modes IS NOT NULL AND payment_modes!='[]') pay, SUM(issue_age IS NOT NULL) age
+           FROM product_terms GROUP BY company ORDER BY company""").fetchall()
+    print(f"{'公司':<8} 商品 已解析條款 給付項目 除外責任 繳費方式 投保年齡")
+    for r in rows:
+        print(f"{r['company']:<8} {r['n']:>4} {r['parsed']:>8} {r['cov']:>8} {r['exc']:>8} {r['pay']:>8} {r['age']:>8}")
+
+
+def print_labels(db: Database, limit: int = 40) -> None:
+    order = "CASE impact WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END"
+    for r in db.conn.execute(f"SELECT * FROM doc_labels WHERE hidden=0 ORDER BY {order}, published_at DESC LIMIT ?",
+                             (limit,)):
+        cats = "/".join(json.loads(r["categories"])) or "未分類"
+        print(f"[{r['impact']:<6}] {(r['published_at'] or '')[:10]} {r['source_id']:<12} {cats:<10} {r['title']}")
+    hidden = db.conn.execute("SELECT COUNT(*) FROM doc_labels WHERE hidden=1").fetchone()[0]
+    print(f"（另有 {hidden} 筆預設隱藏：公關稿或非保險業）")
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="Insurance intel crawler")
     p.add_argument("source_id", nargs="?")
     p.add_argument("--refetch", action="store_true")
     p.add_argument("--config")
+    p.add_argument("--db", help="改用另一個資料庫（例如重播的工作副本 data/replay/<快照>/intel.db）")
     p.add_argument("--all", action="store_true", help="所有已實作來源各跑一輪")
     p.add_argument("--serve", action="store_true", help="常駐排程")
     p.add_argument("--health", action="store_true", help="各來源狀態與警示")
     p.add_argument("--events", action="store_true", help="列出未處理事件")
     p.add_argument("--runs", action="store_true", help="列出最近 crawl_runs")
     p.add_argument("--products", action="store_true", help="各公司投資型商品數與最近上架／停售")
+    p.add_argument("--parse", action="store_true", help="解析層：消化未處理事件")
+    p.add_argument("--terms", action="store_true", help="統一商品 schema（條款解析結果）")
+    p.add_argument("--labels", action="store_true", help="新聞／法規分類結果")
     p.add_argument("-v", "--verbose", action="store_true")
     a = p.parse_args(argv)
     logging.basicConfig(level=logging.INFO if (a.verbose or a.serve) else logging.WARNING,
@@ -180,9 +269,22 @@ def main(argv: list[str] | None = None) -> int:
     if a.serve:  # 常駐時不要每個 HTTP 請求都印一行
         logging.getLogger("httpx").setLevel(logging.WARNING)
     cfg = load_config(a.config)
+    if a.db:
+        if a.all or a.serve or a.source_id or a.parse:
+            p.error("--db 只用來查詢（--labels／--terms／--products／--events／--health），不用來抓取或解析")
+        cfg["defaults"]["db_path"] = a.db
 
-    if a.events or a.runs or a.health or a.products:
+    if a.parse:
+        s = parse_once(cfg, on_event=print_event_line if a.verbose else None)
+        print(json.dumps(s, ensure_ascii=False))
+        return 1 if s["failed"] else 0
+
+    if a.events or a.runs or a.health or a.products or a.terms or a.labels:
         db = open_db(cfg)
+        if a.terms:
+            print_terms(db)
+        if a.labels:
+            print_labels(db)
         if a.products:
             print_products(db)
         if a.events:
@@ -210,7 +312,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1 if failed else 0
 
     if not a.source_id:
-        p.error("需要 source_id，或使用 --all / --serve / --health / --events / --runs")
+        p.error("需要 source_id，或使用 --all / --serve / --health / --events / --runs / --parse")
     stats = run_once(a.source_id, a.refetch, cfg=cfg)
     print(json.dumps(stats, ensure_ascii=False, indent=2))
     return 1 if stats["errors"] and stats["listed"] == 0 else 0

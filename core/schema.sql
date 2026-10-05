@@ -98,3 +98,95 @@ CREATE TABLE IF NOT EXISTS alerts (
     resolved_at    TEXT
 );
 CREATE INDEX IF NOT EXISTS ix_alerts_open ON alerts (source_id, kind, resolved_at);
+
+-- ======================= M4 解析層（Handbook 第三層；D22） =======================
+-- 下游只訂閱 events；解析結果全部可由 raw 重建（刪掉這幾張表再跑 --parse 即可）。
+
+-- 每個事件被解析層處理的紀錄：失敗會重試，超過 max_attempts 標 failed 並發警示（大聲失敗）。
+CREATE TABLE IF NOT EXISTS event_processing (
+    event_id      INTEGER PRIMARY KEY REFERENCES events(id),
+    status        TEXT NOT NULL,          -- ok | skipped | error | failed
+    handler       TEXT,                   -- clause | classify | product
+    attempts      INTEGER NOT NULL DEFAULT 0,
+    error         TEXT,
+    processed_at  TEXT NOT NULL
+);
+
+-- 條款 PDF 結構化：每個條款版本（raw_doc）一筆
+CREATE TABLE IF NOT EXISTS clause_docs (
+    raw_doc_id      INTEGER PRIMARY KEY REFERENCES raw_docs(id),
+    source_id       TEXT NOT NULL,
+    item_key        TEXT NOT NULL,
+    company         TEXT,
+    product_name    TEXT,
+    version         INTEGER,
+    pages           INTEGER,
+    articles        INTEGER,               -- 切出的條文數
+    fields          TEXT NOT NULL DEFAULT '{}',   -- JSON：統一 schema 欄位（規則抽取）
+    evidence        TEXT NOT NULL DEFAULT '{}',   -- JSON：欄位 -> {article_no, title, page}，可追溯原文
+    missing         TEXT NOT NULL DEFAULT '[]',   -- JSON：規則抽不到、留給 LLM 補的欄位
+    warnings        TEXT NOT NULL DEFAULT '[]',
+    parser          TEXT NOT NULL,          -- 例 clause-rules-v1
+    parsed_at       TEXT NOT NULL
+);
+
+-- 條文（條號、標題、本文、頁碼）：條款逐條 diff 與問答引用的基本單位
+CREATE TABLE IF NOT EXISTS clause_articles (
+    raw_doc_id   INTEGER NOT NULL REFERENCES raw_docs(id),
+    seq          INTEGER NOT NULL,          -- 0 = 條款前言（商品名稱、給付項目、文號）；附表為最後一段
+    kind         TEXT NOT NULL,             -- preamble | article | appendix
+    article_no   INTEGER,
+    title        TEXT,
+    text         TEXT NOT NULL,
+    page_start   INTEGER,
+    page_end     INTEGER,
+    text_hash    TEXT NOT NULL,
+    PRIMARY KEY (raw_doc_id, seq)
+);
+
+-- 條款改版（doc_revised）的逐條差異
+CREATE TABLE IF NOT EXISTS clause_diffs (
+    raw_doc_id           INTEGER PRIMARY KEY REFERENCES raw_docs(id),
+    previous_raw_doc_id  INTEGER NOT NULL REFERENCES raw_docs(id),
+    added                TEXT NOT NULL DEFAULT '[]',   -- JSON：新增的條號
+    removed              TEXT NOT NULL DEFAULT '[]',
+    changed              TEXT NOT NULL DEFAULT '[]',   -- JSON：[{article_no, title}]
+    created_at           TEXT NOT NULL
+);
+
+-- 統一商品 schema（Handbook「功能清單」），每個商品一筆，指向最新條款版本
+CREATE TABLE IF NOT EXISTS product_terms (
+    company          TEXT NOT NULL,
+    name             TEXT NOT NULL,
+    line             TEXT,
+    currency         TEXT,
+    status           TEXT,                  -- on_sale | discontinued（同 products）
+    issue_age        TEXT,
+    payment_modes    TEXT,                  -- JSON list
+    coverage         TEXT,                  -- JSON list：給付項目
+    exclusions       TEXT,                  -- 除外責任條文摘要（前 200 字）
+    rate_terms       TEXT,                  -- JSON：宣告利率／預定利率條文
+    riders           TEXT,
+    clause_raw_doc_id INTEGER REFERENCES raw_docs(id),
+    clause_version   INTEGER,
+    clause_url       TEXT,
+    filings          TEXT,                  -- JSON：條款前言列出的備查／核准／修正文號
+    updated_at       TEXT NOT NULL,
+    PRIMARY KEY (company, name)
+);
+
+-- 新聞與法規分類（商品／利率／法規／通路／人事＋影響程度）
+CREATE TABLE IF NOT EXISTS doc_labels (
+    raw_doc_id    INTEGER PRIMARY KEY REFERENCES raw_docs(id),
+    source_id     TEXT NOT NULL,
+    item_key      TEXT NOT NULL,
+    title         TEXT,
+    published_at  TEXT,
+    categories    TEXT NOT NULL DEFAULT '[]',   -- JSON list
+    impact        TEXT NOT NULL,                -- high | medium | low
+    reasons       TEXT NOT NULL DEFAULT '[]',   -- JSON：命中的規則與關鍵字（可解釋）
+    hidden        INTEGER NOT NULL DEFAULT 0,   -- 1 = 晨報預設隱藏（公關稿、非保險業）
+    classifier    TEXT NOT NULL,                -- 例 rules-v1
+    labeled_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_doc_labels_impact ON doc_labels (impact, published_at DESC);

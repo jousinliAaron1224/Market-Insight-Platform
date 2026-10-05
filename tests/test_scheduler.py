@@ -12,7 +12,7 @@ def test_jobs_built_from_sources_yaml():
     jobs = {j.id: j for j in sched.get_jobs()}
     assert set(jobs) == {"tii_law_rss", "fsc_press", "fsc_penalty", "news_rss",
                          "company_cardif_products", "company_cathay_products", "company_fubon_products",
-                         "company_taiwanlife_products", "company_kgi_products"}
+                         "company_taiwanlife_products", "company_kgi_products", "parse_events"}
     for j in jobs.values():
         assert j.max_instances == 1 and j.coalesce is True
     fields = {f.name: str(f) for f in jobs["fsc_press"].trigger.fields}
