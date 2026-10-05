@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>競品比較</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<nav id="nav"></nav>
+<h1>競品比較 <span class="small muted">勾選 2–4 個商品並排比較；每個欄位都附條款條號與頁碼，點了直接開原文 PDF 那一頁</span></h1>
+
+<form class="filters" id="f" onsubmit="return false">
+  <label>公司 <select name="company"><option value="">全部</option></select></label>
+  <label>險種 <select name="line"><option value="">全部</option></select></label>
+  <label>幣別 <select name="currency"><option value="">全部</option><option value="TWD">新臺幣</option><option value="FX">外幣</option></select></label>
+  <label>狀態 <select name="status"><option value="">全部</option><option value="on_sale">銷售中</option><option value="discontinued">已停售</option></select></label>
+  <label>商品名稱 <input type="search" name="q" size="14"></label>
+  <label><input type="checkbox" name="has_clause" value="1" checked> 只看有條款的</label>
+</form>
+
+<div><span id="pcount" class="small muted"></span>
+  <button id="go" disabled>並排比較</button> <button id="clear">清除勾選</button>
+  <span class="small" id="picked"></span></div>
+<div class="scroll" style="margin-top:6px">
+<table id="plist">
+  <thead><tr><th></th><th>公司</th><th>商品</th><th>險種</th><th>幣別</th><th>狀態</th><th>條文數</th><th>待補欄位</th><th>注意</th></tr></thead>
+  <tbody></tbody>
+</table>
+</div>
+
+<div id="result"></div>
+
+<script src="/common.js"></script>
+<script>
+const MAX = 4;
+const form = document.getElementById("f");
+let picked = [];                 // [{company, name}]
+let current = [];                // 比較中的商品明細
+let articles = {};               // raw_doc_id -> 條文
+
+const key = p => `${p.company}|${p.name}`;
+const STATUS_ZH = { on_sale: "銷售中", discontinued: "已停售" };
+
+function saveHash(extra = {}) {
+  const h = new URLSearchParams({ sel: picked.map(key).join("\n"), ...extra });
+  history.replaceState(null, "", "#" + h.toString());
+}
+
+async function loadList() {
+  const fd = new FormData(form);
+  const data = await getJSON("/api/products?" + qs(Object.fromEntries(fd.entries())));
+  document.getElementById("pcount").textContent = `${data.total} 個商品`;
+  const sel = new Set(picked.map(key));
+  document.querySelector("#plist tbody").innerHTML = data.items.map(p => `
+    <tr>
+      <td><input type="checkbox" data-k="${esc(key(p))}" ${sel.has(key(p)) ? "checked" : ""}></td>
+      <td class="nowrap">${esc(p.company)}</td><td>${esc(p.name)}</td>
+      <td class="nowrap">${esc(p.line || "")}</td><td class="nowrap">${esc(curLabel(p.currency))}</td>
+      <td class="nowrap">${esc(STATUS_ZH[p.status] || p.status || "")}</td>
+      <td>${p.articles ?? '<span class="muted">—</span>'}</td>
+      <td class="small">${p.missing ? esc(p.missing.map(m => FIELD_ZH[m] || m).join("、")) : '<span class="muted">無條款</span>'}</td>
+      <td class="small warn">${esc((p.warnings || []).join("；"))}</td>
+    </tr>`).join("") || `<tr><td colspan="9" class="muted">沒有符合條件的商品</td></tr>`;
+}
+
+function updatePicked() {
+  document.getElementById("picked").textContent = picked.length ? "已選：" + picked.map(p => p.name).join("、") : "";
+  document.getElementById("go").disabled = picked.length < 1;
+  document.getElementById("go").textContent = `並排比較（${picked.length}）`;
+}
+
+document.querySelector("#plist").addEventListener("change", e => {
+  const cb = e.target.closest("input[type=checkbox]");
+  if (!cb) return;
+  const [company, name] = cb.dataset.k.split("|");
+  if (cb.checked) {
+    if (picked.length >= MAX) { cb.checked = false; alert(`最多比較 ${MAX} 個商品`); return; }
+    picked.push({ company, name });
+  } else {
+    picked = picked.filter(p => key(p) !== cb.dataset.k);
+  }
+  updatePicked(); saveHash();
+});
+
+// ---------------- 欄位並排 ----------------
+function evLink(p, field) {
+  const c = p.clause;
+  const ev = c && c.evidence && c.evidence[field];
+  if (!ev) return "";
+  const label = (ev.article_no ? `第${ev.article_no}條 ` : "") + (ev.title || "") + (ev.page ? ` p.${ev.page}` : "");
+  if (ev.page && c.raw) return `<a class="ev" href="${esc(c.raw)}#page=${ev.page}" target="_blank">出處：${esc(label)}</a>`;
+  return `<span class="ev">出處：${esc(label)}</span>`;
+}
+
+function missingNote(p, field) {
+  if (!p.clause) return '<span class="muted">無條款</span>';
+  if (field === "issue_age") return '<span class="muted">條款未載明（多在要保規則）</span>';
+  if (field === "exclusions" && /年金/.test(p.line || "")) return '<span class="muted">條款無除外責任條文（年金型常見）</span>';
+  return '<span class="muted">條款未載明／待補</span>';
+}
+
+const ROWS = [
+  ["險種", p => esc(p.line || "")],
+  ["幣別", p => esc(curLabel((p.clause && p.clause.fields.currency) || p.currency)) + evLink(p, "currency")],
+  ["銷售狀態", p => esc(STATUS_ZH[p.status] || p.status || "")],
+  ["首次核准／最近修正", p => esc(`${p.first_date || "?"} ／ ${p.latest_date || "?"}`)],
+  ["給付項目", p => p.coverage ? `<ul class="reasons">${p.coverage.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` + evLink(p, "coverage") : missingNote(p, "coverage")],
+  ["繳費方式", p => p.payment_modes ? esc(p.payment_modes.join("、")) + evLink(p, "payment_modes") : missingNote(p, "payment_modes")],
+  ["除外責任", p => p.exclusions ? `<div class="small">${esc(p.exclusions)}…</div>` + evLink(p, "exclusions") : missingNote(p, "exclusions")],
+  ["宣告／預定利率", p => p.rate_terms ? Object.entries(p.rate_terms).map(([k, v]) => `<div class="small"><b>${esc(k)}</b>：${esc(v)}</div>`).join("") + evLink(p, "rate_terms") : missingNote(p, "rate_terms")],
+  ["附約", p => p.riders ? esc(p.riders) + evLink(p, "riders") : missingNote(p, "riders")],
+  ["投保年齡", p => p.issue_age ? esc(p.issue_age) + evLink(p, "issue_age") : missingNote(p, "issue_age")],
+  ["年金累積期間", p => { const v = p.clause && p.clause.fields.accumulation_min_years; return v ? `不得低於 ${v} 年` + evLink(p, "accumulation_min_years") : '<span class="muted">—</span>'; }],
+  ["契約撤銷期", p => { const v = p.clause && p.clause.fields.free_look_days; return v ? `收到保單翌日起 ${v} 日內` + evLink(p, "free_look_days") : '<span class="muted">—</span>'; }],
+  ["分紅", p => { const v = p.clause && p.clause.fields.participating; return v === false ? "不分紅" : v === true ? "分紅" : '<span class="muted">—</span>'; }],
+  ["條款文號", p => p.filings ? `<details><summary>${esc(p.filings.length)} 筆，最近 ${esc((p.filings.map(f => f.date).filter(Boolean).sort().pop()) || "?")}</summary>`
+      + `<ul class="reasons small">${p.filings.map(f => `<li>${esc(f.date || "?")} ${esc(f.kind || "")} ${esc(f.doc_no)}</li>`).join("")}</ul></details>` : '<span class="muted">—</span>'],
+  ["條款原文", p => p.clause ? `<a href="${esc(p.clause.raw)}" target="_blank">PDF（${p.clause.pages} 頁、${p.clause.articles} 條）</a>`
+      + (p.clause_url ? `<br><a class="small" href="${esc(p.clause_url)}" target="_blank" rel="noopener">官網連結</a>` : "") : '<span class="muted">無條款</span>'],
+  ["待補欄位", p => p.clause ? esc(p.clause.missing.map(m => FIELD_ZH[m] || m).join("、") || "無") : "—"],
+  ["版本與改版", p => p.versions.map(v => `v${v.version}（${esc(v.fetched_at.slice(0, 10))}）`
+      + (v.diff ? `：改 ${v.diff.changed.length} 條、增 ${v.diff.added.length}、刪 ${v.diff.removed.length}`
+          + (v.diff.changed.length ? `<div class="small">${v.diff.changed.map(c => esc(`第${c.article_no}條 ${c.title || ""}`)).join("、")}</div>` : "") : "")
+      + (v.warnings.length ? `<div class="small warn">${esc(v.warnings.join("；"))}</div>` : "")).join("<br>")],
+];
+
+function renderFields() {
+  const head = `<tr><th class="field"></th>${current.map(p => `<th style="position:static">${esc(p.company)}<br>${esc(p.name)}</th>`).join("")}</tr>`;
+  const body = ROWS.map(([label, f]) => `<tr><th class="field">${esc(label)}</th>${current.map(p => `<td>${f(p)}</td>`).join("")}</tr>`).join("");
+  return `<h2>欄位並排</h2><table class="cmp">${head}${body}</table>`;
+}
+
+// ---------------- 條文對照 ----------------
+function titlesOf(p) {
+  if (!p.clause) return [];
+  return (articles[p.clause.raw_doc_id] || []).filter(a => a.kind === "article" && a.title).map(a => a.title);
+}
+
+function titleOptions(kw) {
+  const count = {};
+  current.forEach(p => new Set(titlesOf(p)).forEach(t => count[t] = (count[t] || 0) + 1));
+  let titles = Object.keys(count);
+  if (kw) titles = titles.filter(t => current.some(p => p.clause &&
+      (articles[p.clause.raw_doc_id] || []).some(a => a.title === t && flat(a.text).includes(kw))));
+  titles.sort((a, b) => count[b] - count[a] || a.localeCompare(b, "zh-Hant"));
+  return { titles, count };
+}
+
+// PDF 換行會把句子切斷：顯示時接回去，只在句號／冒號之後或「一、」「(一)」「1.」之前換行
+function reflow(text) {
+  const lines = text.split("\n");
+  let out = lines[0] || "";
+  for (let i = 1; i < lines.length; i++) {
+    const brk = /[。：；:;]$/.test(out) || /^([一二三四五六七八九十百]+、|[(（][一二三四五六七八九十\d]+[)）]|\d+[.、])/.test(lines[i]);
+    out += (brk ? "\n" : "") + lines[i];
+  }
+  return out;
+}
+const flat = t => t.replace(/\s+/g, "");
+
+function renderArticleControls(sel, kw) {
+  const { titles, count } = titleOptions(kw);
+  const opts = [option("__preamble__", "條款前言（商品名稱、給付項目、文號）", sel === "__preamble__")]
+    .concat(titles.map(t => option(t, `${t}（${count[t]}/${current.length}）`, t === sel)));
+  return `<h2>條文對照</h2>
+    <div class="filters">
+      <label>條文 <select id="artsel">${opts.join("")}</select></label>
+      <label>找含這個字的條文 <input type="search" id="artkw" size="12" value="${esc(kw || "")}"></label>
+      <span class="small muted">括號內是幾個商品有這一條；條文標題來自示範條款，各家大多一致</span>
+    </div>`;
+}
+
+function renderArticles(sel, kw) {
+  const cells = current.map(p => {
+    if (!p.clause) return '<td class="muted">無條款</td>';
+    const arts = articles[p.clause.raw_doc_id] || [];
+    const hits = sel === "__preamble__" ? arts.filter(a => a.kind === "preamble") : arts.filter(a => a.title === sel);
+    if (!hits.length) return '<td class="muted">沒有這一條</td>';
+    return "<td>" + hits.map(a => {
+      const where = (a.article_no ? `第${a.article_no}條 ` : "") + (a.title || "前言") + (a.page_start ? ` p.${a.page_start}${a.page_end && a.page_end !== a.page_start ? "–" + a.page_end : ""}` : "");
+      return `<a class="ev" href="${esc(p.clause.raw)}#page=${a.page_start || 1}" target="_blank">${esc(where)}</a><div class="article">${highlight(reflow(a.text), kw)}</div>`;
+    }).join("<hr>") + "</td>";
+  });
+  const head = `<tr>${current.map(p => `<th style="position:static">${esc(p.name)}</th>`).join("")}</tr>`;
+  return `<table class="cmp">${head}<tr>${cells.join("")}</tr></table>`;
+}
+
+function drawArticles(sel, kw) {
+  const box = document.getElementById("arts");
+  if (kw && sel !== "__preamble__") {                // 找字時，目前的條文沒有這個字就跳到第一個有的
+    const { titles } = titleOptions(kw);
+    if (!titles.includes(sel)) sel = titles[0] || "__preamble__";
+  }
+  box.innerHTML = renderArticleControls(sel, kw) + `<div id="artbody">${renderArticles(sel, kw)}</div>`;
+  document.getElementById("artsel").onchange = e => { drawArticles(e.target.value, document.getElementById("artkw").value.trim()); };
+  const kwBox = document.getElementById("artkw");
+  kwBox.oninput = () => { clearTimeout(kwBox._t); kwBox._t = setTimeout(() => {
+    const k = kwBox.value.trim();
+    const s = document.getElementById("artsel");
+    drawArticles(s.value, k);
+    const again = document.getElementById("artkw"); again.focus(); again.setSelectionRange(k.length, k.length);
+  }, 300); };
+  saveHash({ art: sel, kw: kw || "" });
+}
+
+async function compare(initialArt, initialKw) {
+  const res = document.getElementById("result");
+  res.innerHTML = '<p class="muted">載入中…</p>';
+  current = await Promise.all(picked.map(p => getJSON("/api/product?" + qs({ company: p.company, name: p.name }))));
+  await Promise.all(current.filter(p => p.clause && !articles[p.clause.raw_doc_id]).map(async p => {
+    articles[p.clause.raw_doc_id] = await getJSON("/api/articles?raw_doc_id=" + p.clause.raw_doc_id);
+  }));
+  res.innerHTML = renderFields() + '<div id="arts"></div>';
+  drawArticles(initialArt || (current.some(p => titlesOf(p).includes("保險範圍")) ? "保險範圍" : "__preamble__"), initialKw || "");
+  res.scrollIntoView({ behavior: "smooth" });
+}
+
+document.getElementById("go").onclick = () => compare();
+document.getElementById("clear").onclick = () => { picked = []; updatePicked(); saveHash(); loadList(); document.getElementById("result").innerHTML = ""; };
+
+(async () => {
+  const m = await renderNav("compare");
+  form.company.insertAdjacentHTML("beforeend", (m.companies || []).map(c => option(c, c)).join(""));
+  form.line.insertAdjacentHTML("beforeend", (m.lines || []).map(c => option(c, c)).join(""));
+  form.addEventListener("change", loadList);
+  form.q.addEventListener("input", () => { clearTimeout(form._t); form._t = setTimeout(loadList, 250); });
+  // 從網址還原（可以把比較結果的網址存起來或傳給別人）
+  const h = new URLSearchParams(location.hash.slice(1));
+  picked = (h.get("sel") || "").split("\n").filter(Boolean).map(s => { const [company, name] = s.split("|"); return { company, name }; });
+  updatePicked();
+  await loadList();
+  if (picked.length) compare(h.get("art"), h.get("kw"));
+})();
+</script>
+</body>
+</html>

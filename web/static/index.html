@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>情報牆</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<nav id="nav"></nav>
+<h1>情報牆 <span class="small muted" id="summary"></span></h1>
+
+<form class="filters" id="f" onsubmit="return false">
+  <span>影響程度：
+    <label><input type="checkbox" name="imp" value="high" checked> 高</label>
+    <label><input type="checkbox" name="imp" value="medium" checked> 中</label>
+    <label><input type="checkbox" name="imp" value="low"> 低</label>
+  </span>
+  <label>類別 <select name="category"><option value="">全部</option></select></label>
+  <label>來源 <select name="source"><option value="">全部</option></select></label>
+  <label>日期 <input type="date" name="from"> ～ <input type="date" name="to"></label>
+  <label>標題關鍵字 <input type="search" name="q" size="14"></label>
+  <label>排序 <select name="sort"><option value="impact">影響程度</option><option value="date">日期</option></select></label>
+  <label><input type="checkbox" name="hidden"> 顯示預設隱藏（公關稿、非保險業）</label>
+  <button type="button" id="reset">清除條件</button>
+</form>
+
+<div id="count" class="small muted"></div>
+<table id="list">
+  <thead><tr><th class="nowrap">日期</th><th>影響</th><th>類別</th><th>來源</th><th>標題</th><th>依據</th></tr></thead>
+  <tbody></tbody>
+</table>
+
+<script src="/common.js"></script>
+<script>
+const form = document.getElementById("f");
+
+function params() {
+  const fd = new FormData(form);
+  return {
+    impact: fd.getAll("imp").join(","),
+    category: fd.get("category"), source: fd.get("source"),
+    from: fd.get("from"), to: fd.get("to"), q: (fd.get("q") || "").trim(),
+    sort: fd.get("sort"), hidden: fd.get("hidden") ? "all" : "0",
+  };
+}
+
+function row(it, i) {
+  const extra = Object.entries(it.extra || {}).map(([k, v]) => {
+    const zh = { unit: "發布單位", respondent: "受處分人", fine_twd: "罰鍰（元）", data_type: "資料類別", feed: "新聞來源", doc_no: "發文字號" }[k] || k;
+    return `${zh}：${esc(k === "fine_twd" ? Number(v).toLocaleString() : v)}`;
+  }).join("；");
+  return `<tr class="${it.hidden ? "hidden-item" : ""}">
+    <td class="nowrap">${esc(it.date)}</td>
+    <td class="imp imp-${it.impact}">${IMPACT_ZH[it.impact]}${it.hidden ? '<div class="small">（隱藏）</div>' : ""}</td>
+    <td class="nowrap">${esc(it.categories.join("、") || "未分類")}</td>
+    <td class="nowrap">${esc(it.source)}</td>
+    <td><a href="${esc(it.url)}" target="_blank" rel="noopener">${esc(it.title)}</a>
+        ${extra ? `<div class="small muted">${extra}</div>` : ""}</td>
+    <td class="nowrap"><details><summary>為什麼</summary>
+        <ul class="reasons small">${it.reasons.map(r => `<li>${esc(r)}</li>`).join("")}</ul>
+        ${it.raw ? `<a class="small" href="${esc(it.raw)}" target="_blank">抓取時的原文存檔</a>` : ""}
+      </details></td>
+  </tr>`;
+}
+
+async function load() {
+  const data = await getJSON("/api/labels?" + qs(params()));
+  document.getElementById("count").textContent = `符合 ${data.total} 筆` + (data.total > data.items.length ? `（顯示前 ${data.items.length} 筆）` : "");
+  document.querySelector("#list tbody").innerHTML = data.items.map(row).join("")
+    || `<tr><td colspan="6" class="muted">沒有符合條件的項目</td></tr>`;
+}
+
+(async () => {
+  const m = await renderNav("wall");
+  const ic = m.impact_counts || {};
+  document.getElementById("summary").textContent =
+    `高 ${ic.high || 0}・中 ${ic.medium || 0}・低 ${ic.low || 0}（另有 ${m.hidden_count || 0} 筆預設隱藏）`;
+  form.category.insertAdjacentHTML("beforeend", (m.categories || []).map(c => option(c, c)).join(""));
+  form.source.insertAdjacentHTML("beforeend", (m.label_sources || []).map(s => option(s, m.source_labels[s] || s)).join(""));
+  form.addEventListener("change", load);
+  form.q.addEventListener("input", () => { clearTimeout(form._t); form._t = setTimeout(load, 250); });
+  document.getElementById("reset").onclick = () => { form.reset(); load(); };
+  load();
+})();
+</script>
+</body>
+</html>

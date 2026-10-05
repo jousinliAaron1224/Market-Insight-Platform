@@ -1,0 +1,33 @@
+/* 原型：不做設計，只求清楚好讀 */
+body { font-family: -apple-system, "PingFang TC", "Microsoft JhengHei", "Noto Sans TC", sans-serif;
+       margin: 0 16px 40px; color: #111; background: #fff; font-size: 14px; line-height: 1.5; }
+nav { padding: 10px 0; border-bottom: 1px solid #ccc; margin-bottom: 12px; }
+nav a { margin-right: 16px; font-weight: bold; }
+nav a.here { color: #111; text-decoration: none; }
+nav .db { float: right; color: #666; font-size: 12px; }
+h1 { font-size: 18px; margin: 8px 0; }
+h2 { font-size: 16px; margin: 20px 0 8px; }
+.filters { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 8px;
+           background: #f4f4f4; border: 1px solid #ddd; margin-bottom: 10px; }
+.filters label { white-space: nowrap; }
+table { border-collapse: collapse; width: 100%; }
+th, td { border: 1px solid #ccc; padding: 4px 6px; vertical-align: top; text-align: left; }
+th { background: #eee; position: sticky; top: 0; white-space: nowrap; }
+tr.hidden-item td { color: #888; }
+.imp { font-weight: bold; white-space: nowrap; }
+.imp-high { color: #b00000; }
+.imp-medium { color: #8a5a00; }
+.imp-low { color: #666; }
+.muted { color: #777; }
+.small { font-size: 12px; }
+.warn { color: #b00000; }
+.nowrap { white-space: nowrap; }
+.reasons { margin: 4px 0 0 0; padding-left: 18px; }
+.cmp th.field { width: 120px; background: #f4f4f4; position: static; }
+.cmp td { min-width: 220px; }
+.ev { display: block; font-size: 12px; color: #555; }
+.article { white-space: pre-wrap; font-size: 13px; }
+mark { background: #ffef8a; }
+.banner { padding: 8px; border: 1px solid #e0b000; background: #fff8dc; margin-bottom: 10px; }
+button { font-size: 14px; }
+.scroll { max-height: 420px; overflow: auto; border: 1px solid #ccc; }

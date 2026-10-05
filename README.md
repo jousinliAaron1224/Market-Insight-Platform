@@ -9,7 +9,7 @@
 cd insurance-intel
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-pytest -q                                  # 99 個測試，全部離線（M3／M4 用實際下載的官網 PDF，約 75 秒）
+pytest -q                                  # 109 個測試，全部離線（M3／M4 用實際下載的官網 PDF，約 75 秒）
 
 python -m scheduler.run tii_law_rss -v     # 真的抓一輪（約 3 分鐘：50 筆內文，每筆間隔 3 秒）
 python -m scheduler.run --events           # 應該看到 50 筆 new_item
@@ -32,6 +32,18 @@ python -m scheduler.run --labels          # 分類結果，依影響程度排序
 python -m demo.snapshot create demo-1004 --zip   # demo 快照（先跑 --parse）
 python -m demo.replay demo-1004 --delay 0.8      # 從快照重播過去 90 天
 ```
+
+### 前端原型
+
+```bash
+python -m web.server                          # 讀 data/intel.db（先跑 --parse），開 http://127.0.0.1:8765
+python -m web.server --snapshot demo-1005b    # 讀重播後的工作資料庫，原文從快照讀
+```
+
+只用 Python 標準庫，唯讀讀 SQLite，只綁本機位址。純 HTML＋原生 JavaScript（`web/static/`），不做設計，只求清楚能用。
+
+- **情報牆**（`/`）：依影響程度排序，可依影響程度／類別／來源／日期／標題篩選；「為什麼」展開命中原因與抓取時的原文存檔；可切換顯示預設隱藏項。
+- **競品比較**（`/compare.html`）：篩選商品、勾選最多 4 個並排比較統一欄位，每個欄位附出處（條號、標題、頁碼），點了開原文 PDF 那一頁；「條文對照」依條文標題並排各家原文，可輸入關鍵字（例如「解約費用」）找出含該字的條文。比較結果的網址可以存起來或分享。
 
 ### 交給下游（M4）
 

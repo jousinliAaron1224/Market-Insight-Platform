@@ -23,10 +23,11 @@ dev = ["pytest>=8"]
 
 # flat layout 有多個頂層目錄（data/、config/ 不是套件），需明確列出，否則 setuptools 自動偵測會失敗
 [tool.setuptools]
-packages = ["adapters", "adapters.companies", "core", "demo", "parsers", "scheduler"]
+packages = ["adapters", "adapters.companies", "core", "demo", "parsers", "scheduler", "web"]
 
 [tool.setuptools.package-data]
 core = ["schema.sql"]
+web = ["static/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
