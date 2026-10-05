@@ -6,8 +6,18 @@
 
 瀏覽器開 http://127.0.0.1:8765 。只綁本機位址，不對外開放。
 
-頁面：/（情報牆）、/compare.html（競品比較）、/market.html（市場數據）。
-API（全部 GET、回 JSON）：
+頁面：/（商品工作台，D30）、/spec.html?id=（規格書）、/wall.html（情報牆）、/compare.html（競品比較）、
+/market.html（市場數據）。
+商品工作台（草案存在 drafts.db，與唯讀的情報資料庫分開；只綁本機）：
+    GET  /api/lab/modules                       9 個模組的欄位定義
+    GET  /api/lab/products?line=                可複製的競品（含自動擷取的欄位）
+    GET  /api/lab/context?module=&id=&product=  某模組的情境：競品分布與條文、法規、新聞、市場數據
+    GET  /api/lab/spec?id=                      規格書資料（欄位值＋同險種競品分布＋法規＋釘選參考＋檢查提示）
+    GET  /api/drafts | /api/draft?id=           草案清單／單一草案（含檢查提示）
+    POST /api/drafts {name, from:"公司|商品"}    新增草案（可從競品複製）
+    PUT  /api/draft?id= {name, fields, notes, refs}   儲存
+    DELETE /api/draft?id=
+其他 API（GET、回 JSON）：
     /api/meta                     資料庫概況、篩選選項
     /api/week?days=7              本週要注意：最近 N 天的高影響／影響自家商品的項目＋商品動態
     /api/labels?group=law|news&impact=high,medium&category=&source=&q=&from=&to=&hidden=0|1|all&sort=impact|date
@@ -52,10 +62,15 @@ PRODUCT_EVENT_TYPES = ("product_launched", "product_discontinued", "doc_revised"
 class Store:
     """唯讀查詢。每次查詢開新的連線（ThreadingHTTPServer 多執行緒）。"""
 
-    def __init__(self, db_path: Path, data_dir: Path, impact_rules: dict | None = None):
+    def __init__(self, db_path: Path, data_dir: Path, impact_rules: dict | None = None,
+                 drafts_path: Path | None = None, modules_path: Path | None = None):
+        from web.product_lab import DraftStore, FeatureCache
         self.db_path = Path(db_path)
         self.data_dir = Path(data_dir)            # raw_path（raw/…）相對於這個目錄
         self.impact_rules = impact_rules or {}    # sources.yaml 的 parsing.product_impact（D27）
+        self.drafts = DraftStore(drafts_path or self.db_path.parent / "drafts.db")   # 工作台草案（可寫）
+        self.modules_path = modules_path
+        self._features = FeatureCache()
 
     @contextmanager
     def conn(self):
@@ -78,7 +93,7 @@ class Store:
                 "db": str(self.db_path), "parsed": parsed,
                 "events": c.execute("SELECT COUNT(*) FROM events").fetchone()[0],
                 "pending": c.execute("SELECT COUNT(*) FROM events WHERE processed=0").fetchone()[0],
-                "source_labels": SOURCE_LABELS,
+                "source_labels": SOURCE_LABELS, "self_company": self.impact_rules.get("self_company"),
             }
             if "doc_labels" in t:
                 out["impact_counts"] = dict(c.execute(
@@ -316,6 +331,76 @@ class Store:
         with self.conn() as c:
             return companies(c, lambda rel: (self.data_dir / rel).read_bytes(), self.impact_rules.get("self_company"))
 
+    # ------------------------------------------------------------ 商品工作台（D30）
+    @property
+    def self_company(self) -> str | None:
+        return self.impact_rules.get("self_company")
+
+    def lab_modules(self) -> list[dict[str, Any]]:
+        from web.product_lab import load_modules
+        return load_modules(self.modules_path)
+
+    def lab_features(self, c) -> list[dict[str, Any]]:
+        return self._features.get(c, self.db_path)
+
+    def lab_products(self, line: str | None) -> list[dict[str, Any]]:
+        with self.conn() as c:
+            rows = [x for x in self.lab_features(c) if not line or x["line"] == line]
+        return sorted(rows, key=lambda x: (x["company"] != self.self_company, x["company"], x["name"]))
+
+    def _market_fn(self):
+        cache: dict[str, Any] = {}
+
+        def get(key: str):
+            if key not in cache:
+                cache[key] = {"supply": self.market_supply, "demand": self.market_demand,
+                              "companies": self.market_companies}[key]()
+            return cache[key]
+        return get
+
+    def lab_context(self, module_id: str, draft_id: int | None, product: str | None) -> dict[str, Any] | None:
+        from web.product_lab import context
+        module = next((m for m in self.lab_modules() if m["id"] == module_id), None)
+        if module is None:
+            return None
+        draft = self.drafts.get(draft_id) if draft_id else None
+        with self.conn() as c:
+            return context(c, module, draft, self.lab_features(c), self.self_company, self._market_fn(), product)
+
+    def lab_draft(self, did: int) -> dict[str, Any] | None:
+        from web.product_lab import checks
+        d = self.drafts.get(did)
+        if d is None:
+            return None
+        with self.conn() as c:
+            d["checks"] = checks(d, self.lab_modules(), self.lab_features(c))
+        return d
+
+    def lab_create(self, body: dict[str, Any]) -> dict[str, Any]:
+        from web.product_lab import draft_from_product
+        data, base = {}, None
+        if body.get("from"):
+            co, _, nm = str(body["from"]).partition("|")
+            with self.conn() as c:
+                item = next((x for x in self.lab_features(c) if x["company"] == co and x["name"] == nm), None)
+            if item is None:
+                raise ValueError(f"找不到競品：{body['from']}")
+            data, base = draft_from_product(item), body["from"]
+        d = self.drafts.create(str(body.get("name") or ""), data, base)
+        return self.lab_draft(d["id"])
+
+    def lab_update(self, did: int, body: dict[str, Any]) -> dict[str, Any] | None:
+        d = self.drafts.update(did, body.get("name"), body)
+        return self.lab_draft(did) if d else None
+
+    def lab_spec(self, did: int) -> dict[str, Any] | None:
+        from web.product_lab import spec
+        d = self.drafts.get(did)
+        if d is None:
+            return None
+        with self.conn() as c:
+            return spec(d, self.lab_modules(), self.lab_features(c), self.self_company)
+
     def articles(self, raw_doc_id: int) -> list[dict[str, Any]]:
         with self.conn() as c:
             return [dict(r) for r in c.execute(
@@ -353,10 +438,59 @@ def make_handler(store: Store):
         def _json(self, obj: Any, status: int = 200) -> None:
             self._send(status, json.dumps(obj, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")
 
+        def _body(self) -> dict[str, Any]:
+            n = int(self.headers.get("Content-Length") or 0)
+            if n > 1_000_000:
+                raise ValueError("內容太大")
+            data = json.loads(self.rfile.read(n).decode("utf-8") or "{}") if n else {}
+            if not isinstance(data, dict):
+                raise ValueError("內容要是 JSON 物件")
+            return data
+
+        def _write(self, method: str) -> None:
+            u = urlsplit(self.path)
+            q = {k: v[-1] for k, v in parse_qs(u.query).items()}
+            try:
+                if method == "POST" and u.path == "/api/drafts":
+                    return self._json(store.lab_create(self._body()), 201)
+                if method == "PUT" and u.path == "/api/draft":
+                    d = store.lab_update(int(q.get("id", "0")), self._body())
+                    return self._json(d) if d else self._json({"error": "not found"}, 404)
+                if method == "DELETE" and u.path == "/api/draft":
+                    ok = store.drafts.delete(int(q.get("id", "0")))
+                    return self._json({"deleted": ok}, 200 if ok else 404)
+                return self._json({"error": "not found"}, 404)
+            except (ValueError, sqlite3.Error, json.JSONDecodeError) as e:
+                return self._json({"error": str(e)}, 400)
+
+        def do_POST(self) -> None:  # noqa: N802
+            self._write("POST")
+
+        def do_PUT(self) -> None:  # noqa: N802
+            self._write("PUT")
+
+        def do_DELETE(self) -> None:  # noqa: N802
+            self._write("DELETE")
+
         def do_GET(self) -> None:  # noqa: N802
             u = urlsplit(self.path)
             q = {k: v[-1] for k, v in parse_qs(u.query).items()}
             try:
+                if u.path == "/api/lab/modules":
+                    return self._json(store.lab_modules())
+                if u.path == "/api/lab/products":
+                    return self._json(store.lab_products(q.get("line")))
+                if u.path == "/api/lab/context":
+                    d = store.lab_context(q.get("module", ""), int(q["id"]) if q.get("id") else None, q.get("product"))
+                    return self._json(d) if d else self._json({"error": "not found"}, 404)
+                if u.path == "/api/lab/spec":
+                    d = store.lab_spec(int(q.get("id", "0")))
+                    return self._json(d) if d else self._json({"error": "not found"}, 404)
+                if u.path == "/api/drafts":
+                    return self._json(store.drafts.list())
+                if u.path == "/api/draft":
+                    d = store.lab_draft(int(q.get("id", "0")))
+                    return self._json(d) if d else self._json({"error": "not found"}, 404)
                 if u.path == "/api/meta":
                     return self._json(store.meta())
                 if u.path == "/api/labels":
@@ -389,7 +523,7 @@ def make_handler(store: Store):
                     elif p.suffix == ".json":
                         ctype = "application/json; charset=utf-8"
                     return self._send(200, p.read_bytes(), ctype)
-                name = "index.html" if u.path in ("/", "") else u.path.lstrip("/")
+                name = "lab.html" if u.path in ("/", "") else u.path.lstrip("/")
                 f = (STATIC / name).resolve()
                 if STATIC.resolve() in f.parents and f.is_file():
                     ctype = mimetypes.guess_type(f.name)[0] or "text/plain"

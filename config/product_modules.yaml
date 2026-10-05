@@ -1,0 +1,172 @@
+# 模組化商品開發工作台（D30）：投資型商品（變額年金／變額壽險／變額萬能壽險）拆成 9 個模組。
+#
+# 每個模組：
+#   fields      草案要填的欄位。type：text | textarea | number | select | multi | bool
+#               feature：對應到競品自動擷取的欄位（web/product_lab.py 的 FEATURES），工作台會顯示同險種競品的分布
+#   articles    競品條款中，條文標題符合這些關鍵字的條文會列在「競品」分頁（條文標題各家幾乎一致）
+#   appendix    true＝也列條款附表（費用表、保證期間表…）中與關鍵字相關的段落
+#   regs        主要相關法規（名稱與適用條次待法遵核對；只當查找起點，不是法律意見）
+#   law_keywords   法規動態（保發中心法規、金管會新聞稿、裁罰）標題比對的關鍵字
+#   news_keywords  新聞標題比對的關鍵字
+#   market      要顯示的市場數據（web/product_lab.py 的 MARKET_VIEWS）
+#
+# 檢查提示寫在 web/product_lab.py 的 CHECKS（只提示「要確認」，附法規出處，不判斷合不合法）。
+
+modules:
+  - id: positioning
+    name: 商品定位
+    hint: 先決定險種與幣別：右邊會依險種篩選競品，其他模組的競品分布也跟著變。
+    fields:
+      - {id: name, label: 商品名稱（暫定）, type: text}
+      - {id: line, label: 險種, type: select, options: [變額年金保險, 變額壽險, 變額萬能壽險], required: true, feature: line}
+      - {id: currency, label: 計價幣別, type: multi, options: [新臺幣, 美元, 澳幣, 人民幣, 歐元, 日圓, 其他外幣], required: true, feature: currency}
+      - {id: target, label: 目標客群, type: textarea, placeholder: 例：45–65 歲退休規劃、高資產客戶傳承}
+      - {id: channel, label: 銷售通路, type: multi, options: [銀行保險, 保險經紀／代理人, 公司業務員, 網路投保]}
+    articles: [保險範圍, 名詞定義]
+    regs:
+      - {name: 投資型保險投資管理辦法, note: 投資型保險的定義、專設帳簿與投資標的範圍}
+      - {name: 投資型年金保險單示範條款, note: 變額年金條款的基本架構}
+      - {name: 投資型人壽保險單示範條款, note: 變額壽險／變額萬能壽險條款的基本架構}
+      - {name: 銀行、保險公司、保險代理人或保險經紀人辦理銀行保險業務應注意事項, note: 走銀行通路時}
+    law_keywords: [投資型, 示範條款, 外幣, 銀行保險]
+    news_keywords: [投資型, 投資型保單, 變額, 年金險, 外幣保單, 類全委]
+    market: [line_trend, currency_trend, annuity_demand]
+
+  - id: underwriting
+    name: 投保規則
+    hint: 投保年齡、繳費方式、保費上下限。條款常把金額標準放在附件，右邊可看競品附表。
+    fields:
+      - {id: age_min, label: 投保年齡下限（歲）, type: number}
+      - {id: age_max, label: 投保年齡上限（歲）, type: number, required: true}
+      - {id: payment, label: 繳費方式, type: multi, options: [躉繳, 定期繳, 不定期繳／彈性繳], required: true, feature: payment_modes}
+      - {id: premium_limits, label: 保費上下限, type: textarea, placeholder: 例：首期不定期保費下限 新臺幣 30 萬元}
+    articles: [投保年齡, 保險費交付, 保險責任的開始, 超額保險費, 目標保險費]
+    appendix: [保險費限制, 金額標準, 保險費下限]
+    regs:
+      - {name: 保險業招攬及核保理賠辦法, note: 高齡客戶（65 歲以上）的招攬與核保；2026 年起錄音錄影可改以其他保護措施取代（第 6、7 條修正，以現行條文為準）}
+      - {name: 金融服務業確保金融商品或服務適合金融消費者辦法, note: 適合度與商品風險等級}
+    law_keywords: [招攬及核保理賠, 高齡, 適合, 核保]
+    news_keywords: [高齡, 65歲, 錄音錄影, 投保年齡]
+    market: [new_approvals]
+
+  - id: benefits
+    name: 保障設計
+    hint: 身故給付型態、最低死亡給付、年金給付方式。變額壽險要符合死亡給付對保單帳戶價值的最低比率。
+    fields:
+      - {id: death_type, label: 身故給付型態, type: select, options: [甲型（保額與帳戶價值取大）, 乙型（保額加帳戶價值）, 返還保單帳戶價值（年金型）], feature: death_type}
+      - {id: min_death, label: 有保證最低身故保險金, type: bool, feature: min_death_guarantee}
+      - {id: disability, label: 有完全失能保險金, type: bool, feature: disability}
+      - {id: maturity, label: 有祝壽保險金, type: bool, feature: maturity_benefit}
+      - {id: annuity_guarantee, label: 年金保證期間（年，可多選）, type: multi, options: ["5", "10", "15", "20"], feature: annuity_guarantee_years}
+      - {id: accumulation_min, label: 年金累積期間下限（年）, type: number, feature: accumulation_min_years}
+    articles: [身故, 完全失能, 祝壽, 年金給付, 年金金額, 保證, 年金累積期間]
+    appendix: [保證期間]
+    regs:
+      - {name: 投資型人壽保險商品死亡給付對保單帳戶價值之最低比率規範, note: 依被保險人年齡訂最低比率（2020-07-01 起適用新比率，以現行條文為準）, url: "https://law.fsc.gov.tw/LawContent.aspx?id=FE060893"}
+      - {name: 人身保險商品審查應注意事項, note: 給付設計與審查重點}
+      - {name: 投資型年金保險單示範條款, note: 年金給付、保證期間}
+    law_keywords: [死亡給付, 示範條款, 商品審查, 年金]
+    news_keywords: [身故, 保障, 年金化, 年金給付]
+    market: [annuity_demand]
+
+  - id: investment
+    name: 投資標的
+    hint: 標的類型、是否有全權委託帳戶、資產撥回機制。撥回可能來自本金，揭露要求較多。
+    fields:
+      - {id: asset_types, label: 標的類型, type: multi, options: [共同基金, ETF, 全權委託帳戶, 貨幣帳戶／資金停泊帳戶, 結構型商品]}
+      - {id: discretionary, label: 有全權委託帳戶, type: bool, feature: discretionary}
+      - {id: distribution, label: 有資產撥回（提減）機制, type: bool, feature: distribution}
+      - {id: stop_profit, label: 有停利／自動轉換機制, type: bool, feature: stop_profit}
+      - {id: asset_count, label: 預計標的數量, type: number}
+    articles: [投資標的, 撥回, 提減, 收益分配, 停利, 配置比例]
+    appendix: [投資標的一覽表, 撥回]
+    regs:
+      - {name: 投資型保險投資管理辦法, note: 投資標的範圍、全權委託、專設帳簿}
+      - {name: 投資型保險專設帳簿保管機構及投資標的應注意事項, note: 標的選擇與保管機構}
+    law_keywords: [投資型保險投資管理, 專設帳簿, 投資標的, 全權委託, 撥回]
+    news_keywords: [撥回, 全委, 類全委, 投資標的, 配息]
+    market: [line_trend]
+
+  - id: fees
+    name: 費用結構
+    hint: 保費費用、保單管理費、解約與部分提領費用、轉換費、加值給付。右邊的競品數字是從條款附表自動擷取，請點原文核對。
+    fields:
+      - {id: premium_charge, label: 保費費用率（%，最高）, type: number, feature: premium_charge_pct}
+      - {id: admin_fee, label: 保單管理費／帳戶管理費, type: textarea, placeholder: 例：每月新臺幣 100 元；保費達 300 萬免收}
+      - {id: surrender_max, label: 解約費用率（%，第一年）, type: number, feature: surrender_max_pct}
+      - {id: surrender_years, label: 解約費用期間（年）, type: number}
+      - {id: switch_fee, label: 轉換費, type: text, placeholder: 例：每年 12 次免費，之後每次 500 元}
+      - {id: bonus, label: 有加值給付／回饋金, type: bool, feature: bonus}
+    articles: [費用, 每月扣除額, 加值, 回饋金, 作業費]
+    appendix: [費用, 解約, 回饋金, 加值]
+    regs:
+      - {name: 投資型保險商品銷售應注意事項, note: 費用揭露與說明義務}
+      - {name: 人身保險業辦理資訊公開管理辦法, note: 商品費用與說明書資訊公開}
+    law_keywords: [投資型保險商品銷售, 資訊公開, 費用]
+    news_keywords: [費用, 手續費, 解約費用]
+    market: [expense_ratio]
+
+  - id: rights
+    name: 保單權益
+    hint: 契約撤銷、部分提領、保單借款、基本保額變更。大多跟示範條款一致，差異通常在次數與金額門檻。
+    fields:
+      - {id: partial_withdrawal, label: 可部分提領, type: bool, feature: partial_withdrawal}
+      - {id: policy_loan, label: 可保單借款, type: select, options: [不提供, 提供]}
+      - {id: basic_amount_change, label: 可變更基本保額, type: bool, feature: basic_amount_change}
+      - {id: rights_notes, label: 其他權益說明, type: textarea}
+    articles: [契約撤銷, 部分提領, 保險單借款, 基本保額, 契約的終止, 寬限期間, 效力的恢復]
+    regs:
+      - {name: 投資型年金保險單示範條款, note: 契約撤銷、終止、提領}
+      - {name: 投資型人壽保險單示範條款, note: 同上（壽險）}
+    law_keywords: [示範條款]
+    news_keywords: [解約, 提領, 保單借款]
+    market: [persistency]
+
+  - id: exclusions
+    name: 除外責任與附約
+    hint: 除外事項通常沿用示範條款；附約與批註條款（例如全委帳戶批註）要另外送審。
+    fields:
+      - {id: exclusions_follow, label: 除外責任沿用示範條款, type: bool}
+      - {id: exclusions_notes, label: 與示範條款不同之處, type: textarea}
+      - {id: riders, label: 可附加附約／批註條款, type: textarea, feature: riders}
+    articles: [除外責任, 告知義務, 批註]
+    regs:
+      - {name: 投資型人壽保險單示範條款, note: 除外責任、告知義務}
+    law_keywords: [示範條款, 附加條款]
+    news_keywords: [除外, 理賠爭議]
+    market: []
+
+  - id: sales
+    name: 銷售與合規
+    hint: 商品風險等級、適合度評估、高齡客戶保護、銷售文件。對照最近的裁罰與檢查缺失。
+    fields:
+      - {id: risk_level, label: 商品風險等級, type: select, options: [RR1, RR2, RR3, RR4, RR5, 依標的另定]}
+      - {id: senior, label: 開放 65 歲以上投保, type: bool}
+      - {id: suitability, label: 已規劃適合度評估與 KYC, type: bool}
+      - {id: senior_measures, label: 高齡客戶保護措施, type: textarea, placeholder: 例：錄音錄影或替代措施、關懷提問、電訪}
+    articles: [投資風險與法律救濟, 特殊情事]
+    regs:
+      - {name: 投資型保險商品銷售應注意事項, note: 銷售流程、說明與風險揭露}
+      - {name: 保險業招攬及核保理賠辦法, note: 高齡客戶、錄音錄影或替代措施（2026 年修正）}
+      - {name: 金融服務業確保金融商品或服務適合金融消費者辦法, note: 適合度}
+      - {name: 保險業辦理電子商務應注意事項, note: 網路投保時}
+    law_keywords: [投資型保險商品銷售, 招攬, 適合, 電子商務, 裁罰, 違反]
+    news_keywords: [裁罰, 招攬, 高齡, 錄音錄影, 銷售]
+    include_penalties: true
+    market: [persistency]
+
+  - id: filing
+    name: 送審
+    hint: 核准制或備查制、預計送審時程、要準備的文件。右邊列出同險種最近核准的商品與文號。
+    fields:
+      - {id: filing_type, label: 送審方式, type: select, options: [核准, 備查, 待確認]}
+      - {id: filing_date, label: 預計送審日, type: text, placeholder: YYYY-MM-DD}
+      - {id: documents, label: 要準備的文件, type: multi, options: [保險單條款, 商品說明書, 要保書, 費率表, 精算報告, 投資標的批註條款, 銷售文件]}
+      - {id: filing_notes, label: 備註, type: textarea}
+    articles: []
+    regs:
+      - {name: 保險商品銷售前程序作業準則, note: 核准／備查／免報的適用範圍與程序}
+      - {name: 人身保險商品審查應注意事項, note: 審查重點}
+    law_keywords: [銷售前程序, 商品審查, 備查]
+    news_keywords: [核准, 新商品, 送審]
+    market: [new_approvals, revision_waves]

@@ -155,6 +155,42 @@ def test_market_companies(site):
     assert len(c["growth_trend"]) == 2
 
 
+def _req(base, path, method="GET", body=None):
+    req = urllib.request.Request(base + path, method=method, data=json.dumps(body).encode() if body is not None else None,
+                                 headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req) as r:
+            return r.status, json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        return e.code, json.loads(e.read())
+
+
+def test_product_lab_api(site):
+    _, base, _ = site
+    status, ctype, body = get(base, "/")
+    assert status == 200 and "商品工作台".encode() in body
+    assert get(base, "/wall.html")[0] == 200 and get(base, "/spec.html")[0] == 200
+    mods = json.loads(get(base, "/api/lab/modules")[2])
+    assert len(mods) == 9
+    prods = json.loads(get(base, "/api/lab/products?line=變額年金保險".replace("變額年金保險", urllib.parse.quote("變額年金保險")))[2])
+    assert [p["name"] for p in prods] == [NAME]
+    st, d = _req(base, "/api/drafts", "POST", {"name": "測試", "from": f"凱基人壽|{NAME}"})
+    assert st == 201 and d["fields"]["line"] == "變額年金保險" and d["base"] == f"凱基人壽|{NAME}"
+    assert _req(base, "/api/drafts", "POST", {"from": "沒有|這個"})[0] == 400
+    st, u = _req(base, f"/api/draft?id={d['id']}", "PUT", {"name": "改名", "fields": {**d["fields"], "age_max": 70}, "notes": {}, "refs": {}})
+    assert st == 200 and u["name"] == "改名" and any("65 歲以上" in c["msg"] for c in u["checks"])
+    ctx = json.loads(get(base, f"/api/lab/context?module=fees&id={d['id']}")[2])
+    assert ctx["competitors"]["n"] == 1 and ctx["competitors"]["selected"]["name"] == NAME
+    assert any(a["kind"] == "appendix" for a in ctx["competitors"]["articles"])
+    law = json.loads(get(base, f"/api/lab/context?module=positioning&id={d['id']}")[2])["law"]
+    assert [x["title"] for x in law] == ["投資型保險商品銷售應注意事項"]       # 「強制汽車責任保險」不會進來
+    sp = json.loads(get(base, f"/api/lab/spec?id={d['id']}")[2])
+    assert sp["draft"]["name"] == "改名" and len(sp["modules"]) == 9 and sp["n_competitors"] == 1
+    assert _req(base, "/api/lab/context?module=nope")[0] == 404
+    assert _req(base, f"/api/draft?id={d['id']}", "DELETE")[0] == 200
+    assert _req(base, f"/api/draft?id={d['id']}")[0] == 404
+
+
 def test_family_names():
     from web.market import family_of
     assert family_of("法商法國巴黎人壽", "法商法國巴黎人壽享富足外幣變額年金保險(乙型)") == "享富足"

@@ -38,7 +38,8 @@ function highlight(text, kw) {
 
 async function renderNav(here) {
   const nav = document.getElementById("nav");
-  nav.innerHTML = `<a href="/" class="${here === "wall" ? "here" : ""}">情報牆</a>`
+  nav.innerHTML = `<a href="/" class="${here === "lab" ? "here" : ""}">商品工作台</a><span class="nav-sep">資料來源：</span>`
+    + `<a href="/wall.html" class="${here === "wall" ? "here" : ""}">情報牆</a>`
     + `<a href="/compare.html" class="${here === "compare" ? "here" : ""}">競品比較</a>`
     + `<a href="/market.html" class="${here === "market" ? "here" : ""}">市場數據</a>`
     + `<span class="db" id="dbinfo"></span>`;

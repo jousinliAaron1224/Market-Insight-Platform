@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>商品規格書</title>
+<link rel="stylesheet" href="/style.css">
+<style>
+  .spec { max-width: 980px; margin: 0 auto; padding: 16px; background: var(--surface); }
+  .spec h1 { font-size: 22px; margin: 4px 0; }
+  .spec h2 { font-size: 16px; margin: 22px 0 6px; padding-bottom: 4px; border-bottom: 2px solid var(--ink); }
+  .spec .meta { font-size: 12px; color: var(--ink2); }
+  .spec table { font-size: 13px; }
+  .spec th, .spec td { border: 1px solid var(--grid); padding: 5px 8px; }
+  .spec th { background: #f1f0eb; width: 180px; position: static; }
+  .spec td.cmp { color: var(--ink2); font-size: 12px; width: 40%; }
+  .spec .empty { color: var(--bad); }
+  .spec ul { margin: 4px 0; padding-left: 20px; font-size: 13px; }
+  .spec .sub { font-size: 13px; font-weight: 600; margin: 10px 0 2px; }
+  .toolbar { max-width: 980px; margin: 10px auto 0; padding: 0 16px; display: flex; gap: 8px; }
+  .disclaimer { font-size: 12px; color: var(--ink2); background: #fbf8ee; border: 1px solid #eadfb8; padding: 8px 10px; border-radius: 6px; }
+  @media print {
+    nav, .toolbar { display: none; }
+    body.dash { background: #fff; }
+    .spec { padding: 0; }
+    .spec h2 { break-after: avoid; }
+    .spec table, .spec .mod { break-inside: avoid; }
+    a { color: inherit; text-decoration: none; }
+  }
+</style>
+</head>
+<body class="dash">
+<nav id="nav"></nav>
+<div class="toolbar"><button onclick="print()" class="primary">列印／存成 PDF</button><a id="back" class="btn">← 回工作台</a></div>
+<article class="spec" id="spec"><p class="muted">載入中…</p></article>
+<script src="/common.js"></script>
+<script>
+const LEVEL_ZH = { missing: "未填", warn: "要確認", info: "提醒" };
+const KIND_ZH = { product: "競品", article: "條文", reg: "法規", law: "法規動態", news: "新聞", market: "市場" };
+const fmtVal = v => v === true ? "是" : v === false ? "否" : Array.isArray(v) ? (v.length ? v.join("、") : null) : (v === "" ? null : v);
+function cmpText(s) {
+  if (!s || s.kind === "none") return '<span class="muted">競品擷取不到</span>';
+  if (s.kind === "range") return `${num(s.min, 1)}～${num(s.max, 1)}，中位數 ${num(s.median, 1)}（${s.n} 個）`;
+  return s.counts.slice(0, 5).map(([k, n]) => `${esc(k.replace(/（.*）$/, ""))} ${n}`).join("、") + `（共 ${s.n} 個）`;
+}
+(async () => {
+  await renderNav("lab");
+  const id = new URLSearchParams(location.search).get("id");
+  document.getElementById("back").href = `/#id=${id}`;
+  const d = await getJSON(`/api/lab/spec?id=${id}`);
+  document.title = `${d.draft.name}｜商品規格書`;
+  const checks = d.checks;
+  const byMod = m => checks.filter(c => c.module === m);
+  const counts = ["missing", "warn", "info"].map(l => `${LEVEL_ZH[l]} ${checks.filter(c => c.level === l).length}`).join("｜");
+  let h = `<h1>${esc(d.draft.name)}</h1>
+    <div class="meta">險種：${esc(d.line || "未定")}｜建立 ${esc((d.draft.created_at || "").slice(0, 10))}｜最後修改 ${esc((d.draft.updated_at || "").slice(0, 16).replace("T", " "))}
+      ${d.draft.base ? `｜複製自 ${esc(d.draft.base.replace("|", "｜"))}` : ""}｜檢查：${counts}</div>
+    <p class="disclaimer">本文件由商品工作台自動彙整。「同險種競品」欄位是從各公司公開條款與附表自動擷取（${d.n_competitors} 個同險種商品），
+      法規名稱與適用條次待法遵核對；檢查項目只是提醒要確認的事項，不是法律意見。</p>`;
+  d.modules.forEach((m, i) => {
+    const c = byMod(m.id);
+    h += `<section class="mod"><h2>${i + 1}. ${esc(m.name)}</h2>
+      <table><thead><tr><th>項目</th><th>設定</th><th>同險種競品</th></tr></thead><tbody>
+      ${m.fields.map(f => { const v = fmtVal(f.value); return `<tr><th>${esc(f.label)}</th>
+        <td>${v == null ? '<span class="empty">未填</span>' : esc(v)}</td><td class="cmp">${f.competitors ? cmpText(f.competitors) : ""}</td></tr>`; }).join("")}
+      </tbody></table>
+      ${m.note ? `<div class="sub">備註</div><p>${esc(m.note)}</p>` : ""}
+      ${c.length ? `<div class="sub">要確認的事項</div><ul>${c.map(x => `<li><b>${LEVEL_ZH[x.level]}</b>：${esc(x.msg)}${x.ref ? `（依據：${esc(x.ref)}）` : ""}</li>`).join("")}</ul>` : ""}
+      <div class="sub">相關法規</div><ul>${m.regs.map(r => `<li>${esc(r.name)}<span class="muted">：${esc(r.note || "")}</span></li>`).join("")}</ul>
+      ${m.refs.length ? `<div class="sub">參考資料</div><ul>${m.refs.map(r => `<li>[${esc(KIND_ZH[r.kind] || r.kind)}] ${r.url ? `<a href="${esc(r.url)}">${esc(r.title)}</a>` : esc(r.title)}${r.note ? `<span class="muted">（${esc(r.note)}）</span>` : ""}</li>`).join("")}</ul>` : ""}
+      </section>`;
+  });
+  document.getElementById("spec").innerHTML = h;
+})();
+</script>
+</body>
+</html>

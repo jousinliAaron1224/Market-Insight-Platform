@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>商品工作台</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body class="dash">
+<nav id="nav"></nav>
+<main class="wrap">
+  <header class="lab-bar">
+    <div class="lab-title">
+      <h1>商品工作台</h1>
+      <span class="muted small">投資型商品｜依模組組裝，右邊同步看法規、競品、新聞、市場</span>
+    </div>
+    <div class="lab-actions">
+      <label>草案 <select id="draftSel"></select></label>
+      <button id="btnNew">＋ 新增草案</button>
+      <a id="lnkSpec" class="btn" target="_blank">規格書</a>
+      <button id="btnDel" class="ghost">刪除</button>
+      <span id="saveState" class="small muted"></span>
+    </div>
+  </header>
+
+  <section class="card" id="newForm" hidden>
+    <h2>新增商品草案</h2>
+    <div class="form-row"><label>名稱</label><input id="newName" placeholder="例：法巴 2027 美元變額年金"></div>
+    <div class="form-row"><label>起點</label>
+      <div>
+        <label class="inline"><input type="radio" name="start" value="blank" checked> 空白開始</label>
+        <label class="inline"><input type="radio" name="start" value="copy"> 從競品複製（自動帶入擷取到的欄位）</label>
+      </div>
+    </div>
+    <div class="form-row" id="copyRow" hidden><label>競品</label>
+      <div class="copy-pick">
+        <select id="copyLine"><option value="">全部險種</option><option>變額年金保險</option><option>變額壽險</option><option>變額萬能壽險</option></select>
+        <input id="copyQ" placeholder="搜尋商品名稱">
+        <select id="copyProd" size="8"></select>
+      </div>
+    </div>
+    <div class="form-row"><label></label><div><button id="btnCreate" class="primary">建立</button> <button id="btnCancel" class="ghost">取消</button></div></div>
+  </section>
+
+  <section class="card" id="empty" hidden>
+    <h2>還沒有草案</h2>
+    <p>按「＋ 新增草案」開始。可以從空白開始，或從某個競品複製，再逐個模組調整。</p>
+  </section>
+
+  <div class="lab" id="lab" hidden>
+    <div class="lab-left">
+      <section class="card steps" id="steps"></section>
+      <section class="card" id="form"></section>
+      <section class="card" id="pins"></section>
+    </div>
+    <div class="lab-right">
+      <section class="card ctx">
+        <div class="tabs" id="tabs"></div>
+        <div id="ctx"><p class="muted">載入中…</p></div>
+      </section>
+    </div>
+  </div>
+</main>
+
+<script src="/common.js"></script>
+<script src="/charts.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const short = c => (c || "").replace(/^法商/, "");
+const LEVEL_ZH = { missing: "未填", warn: "要確認", info: "提醒" };
+const SRC_ZH = { tii_law_rss: "保發中心法規", fsc_press: "金管會新聞稿", fsc_penalty: "金管會裁罰" };
+const S = { modules: [], draft: null, module: null, tab: "comp", ctx: null, product: null, saveTimer: null, selfCo: null };
+
+const qsGet = () => new URLSearchParams(location.hash.slice(1));
+function setHash() {
+  const p = new URLSearchParams();
+  if (S.draft) p.set("id", S.draft.id);
+  if (S.module) p.set("m", S.module);
+  if (S.tab !== "comp") p.set("tab", S.tab);
+  history.replaceState(null, "", "#" + p.toString());
+}
+
+// ================================================================ 草案清單與新增
+async function loadDrafts(selectId) {
+  const list = await getJSON("/api/drafts");
+  $("draftSel").innerHTML = list.map(d => option(d.id, `${d.name}${d.line ? "（" + d.line + "）" : ""}`, d.id == selectId)).join("");
+  $("empty").hidden = list.length > 0;
+  $("lab").hidden = list.length === 0;
+  ["draftSel", "lnkSpec", "btnDel"].forEach(id => $(id).hidden = list.length === 0);
+  if (!list.length) { S.draft = null; return; }
+  await openDraft(selectId && list.some(d => d.id == selectId) ? selectId : list[0].id);
+}
+
+async function openDraft(id) {
+  S.draft = await getJSON(`/api/draft?id=${id}`);
+  $("draftSel").value = id;
+  $("lnkSpec").href = `/spec.html?id=${id}`;
+  if (!S.module) S.module = S.modules[0].id;
+  S.product = null;
+  renderAll();
+  loadContext();
+}
+
+async function loadCopyList() {
+  const items = await getJSON(`/api/lab/products?line=${encodeURIComponent($("copyLine").value)}`);
+  const q = $("copyQ").value.trim();
+  $("copyProd").innerHTML = items.filter(x => !q || x.name.includes(q)).map(x =>
+    option(`${x.company}|${x.name}`, `${short(x.company)}｜${x.name.replace(x.company, "")}（${x.first_date || "日期不明"}）`)).join("");
+}
+
+$("btnNew").onclick = () => { $("newForm").hidden = false; $("newName").focus(); };
+$("btnCancel").onclick = () => { $("newForm").hidden = true; };
+document.querySelectorAll('input[name="start"]').forEach(r => r.onchange = () => {
+  const copy = document.querySelector('input[name="start"]:checked').value === "copy";
+  $("copyRow").hidden = !copy;
+  if (copy && !$("copyProd").options.length) loadCopyList();
+});
+$("copyLine").onchange = loadCopyList;
+$("copyQ").oninput = () => { clearTimeout(S.qT); S.qT = setTimeout(loadCopyList, 250); };
+$("btnCreate").onclick = async () => {
+  const copy = document.querySelector('input[name="start"]:checked').value === "copy";
+  const body = { name: $("newName").value };
+  if (copy) {
+    if (!$("copyProd").value) return alertMsg("先選一個競品");
+    body.from = $("copyProd").value;
+  }
+  const r = await fetch("/api/drafts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const d = await r.json();
+  if (!r.ok) return alertMsg(d.error || "建立失敗");
+  $("newForm").hidden = true;
+  S.module = S.modules[0].id;
+  await loadDrafts(d.id);
+};
+$("draftSel").onchange = () => openDraft($("draftSel").value);
+$("btnDel").onclick = async () => {
+  if (!S.draft || !confirm(`刪除草案「${S.draft.name}」？刪除後無法復原。`)) return;
+  await fetch(`/api/draft?id=${S.draft.id}`, { method: "DELETE" });
+  S.draft = null;
+  await loadDrafts();
+};
+function alertMsg(m) { $("saveState").textContent = m; $("saveState").className = "small warn"; }
+
+// ================================================================ 儲存（自動）
+function scheduleSave(refreshCtx = false) {
+  $("saveState").textContent = "未儲存…";
+  $("saveState").className = "small muted";
+  clearTimeout(S.saveTimer);
+  S.saveTimer = setTimeout(() => save(refreshCtx), 700);
+}
+async function save(refreshCtx) {
+  const d = S.draft;
+  const r = await fetch(`/api/draft?id=${d.id}`, { method: "PUT", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: d.name, fields: d.fields, notes: d.notes, refs: d.refs }) });
+  if (!r.ok) return alertMsg("儲存失敗");
+  const nd = await r.json();
+  S.draft.checks = nd.checks;
+  S.draft.updated_at = nd.updated_at;
+  $("saveState").textContent = "已儲存 " + new Date().toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" });
+  renderSteps();
+  renderChecks();
+  if (refreshCtx) loadContext();
+}
+
+// ================================================================ 左：步驟、表單、釘選
+function filled(m) {
+  const f = S.draft.fields || {};
+  return m.fields.filter(x => f[x.id] !== undefined && f[x.id] !== null && f[x.id] !== "" && !(Array.isArray(f[x.id]) && !f[x.id].length)).length;
+}
+function renderSteps() {
+  const ch = S.draft.checks || [];
+  $("steps").innerHTML = `<div class="step-name"><input id="draftName" value="${esc(S.draft.name)}" aria-label="草案名稱"></div>`
+    + S.modules.map((m, i) => {
+      const c = ch.filter(x => x.module === m.id);
+      const warn = c.filter(x => x.level !== "info").length;
+      return `<button class="step${m.id === S.module ? " on" : ""}" data-m="${m.id}">
+        <span class="step-no">${i + 1}</span><span class="step-label">${esc(m.name)}</span>
+        <span class="step-meta">${filled(m)}/${m.fields.length}${warn ? ` <span class="badge warnb">${warn}</span>` : ""}${c.length - warn ? ` <span class="badge infob">${c.length - warn}</span>` : ""}</span></button>`;
+    }).join("");
+  $("steps").querySelectorAll(".step").forEach(b => b.onclick = () => {
+    S.module = b.dataset.m; S.product = null; setHash(); renderAll(); loadContext();
+  });
+  $("draftName").onchange = e => { S.draft.name = e.target.value; scheduleSave(); loadDrafts(S.draft.id); };
+}
+
+function fieldInput(fd, v) {
+  const id = `f_${fd.id}`;
+  if (fd.type === "textarea") return `<textarea id="${id}" rows="3" placeholder="${esc(fd.placeholder || "")}">${esc(v ?? "")}</textarea>`;
+  if (fd.type === "number") return `<input id="${id}" type="number" step="any" value="${esc(v ?? "")}">`;
+  if (fd.type === "select") return `<select id="${id}"><option value="">（未定）</option>${fd.options.map(o => option(o, o, v === o)).join("")}</select>`;
+  if (fd.type === "bool") return `<select id="${id}">${option("", "（未定）", v == null)}${option("true", "是", v === true)}${option("false", "否", v === false)}</select>`;
+  if (fd.type === "multi") return `<div class="checks" id="${id}">${fd.options.map(o =>
+    `<label class="inline"><input type="checkbox" value="${esc(o)}"${(v || []).includes(o) ? " checked" : ""}> ${esc(o)}</label>`).join("")}</div>`;
+  return `<input id="${id}" value="${esc(v ?? "")}" placeholder="${esc(fd.placeholder || "")}">`;
+}
+function readField(fd) {
+  const el = $(`f_${fd.id}`);
+  if (fd.type === "multi") return [...el.querySelectorAll("input:checked")].map(x => x.value);
+  if (fd.type === "bool") return el.value === "" ? null : el.value === "true";
+  if (fd.type === "number") return el.value === "" ? null : Number(el.value);
+  return el.value === "" ? null : el.value;
+}
+
+function renderForm() {
+  const m = S.modules.find(x => x.id === S.module);
+  const f = S.draft.fields || {};
+  $("form").innerHTML = `<h2>${S.modules.indexOf(m) + 1}. ${esc(m.name)}</h2><p class="cap">${esc(m.hint || "")}</p>
+    ${m.fields.map(fd => `<div class="fld"><label for="f_${fd.id}">${esc(fd.label)}${fd.required ? ' <span class="req">必填</span>' : ""}
+      ${fd.feature ? '<span class="cmp-chip" title="右邊「競品」分頁有同險種的分布">有競品分布</span>' : ""}</label>${fieldInput(fd, f[fd.id])}</div>`).join("")}
+    <div class="fld"><label for="note_m">這個模組的備註</label><textarea id="note_m" rows="2">${esc((S.draft.notes || {})[m.id] || "")}</textarea></div>
+    <div id="mchecks"></div>
+    <div class="nav-btns">${S.modules.indexOf(m) > 0 ? '<button id="prevM" class="ghost">← 上一個模組</button>' : ""}
+      ${S.modules.indexOf(m) < S.modules.length - 1 ? '<button id="nextM">下一個模組 →</button>' : '<a class="btn" href="/spec.html?id=' + S.draft.id + '" target="_blank">看規格書 →</a>'}</div>`;
+  for (const fd of m.fields) {
+    const el = $(`f_${fd.id}`);
+    el.addEventListener(fd.type === "multi" || fd.type === "select" || fd.type === "bool" ? "change" : "input", () => {
+      S.draft.fields = S.draft.fields || {};
+      S.draft.fields[fd.id] = readField(fd);
+      scheduleSave(fd.id === "line");
+    });
+  }
+  $("note_m").oninput = e => { S.draft.notes = S.draft.notes || {}; S.draft.notes[m.id] = e.target.value; scheduleSave(); };
+  const go = d => { S.module = S.modules[S.modules.indexOf(m) + d].id; S.product = null; setHash(); renderAll(); loadContext(); window.scrollTo({ top: 0, behavior: "smooth" }); };
+  if ($("prevM")) $("prevM").onclick = () => go(-1);
+  if ($("nextM")) $("nextM").onclick = () => go(1);
+  renderChecks();
+}
+
+function renderChecks() {
+  const box = $("mchecks");
+  if (!box) return;
+  const c = (S.draft.checks || []).filter(x => x.module === S.module);
+  box.innerHTML = c.length ? `<div class="checks-box">${c.map(x => `<div class="chk chk-${x.level}">
+      <span class="chk-tag">${LEVEL_ZH[x.level]}</span><span>${esc(x.msg)}${x.ref ? `<span class="src">依據：${esc(x.ref)}</span>` : ""}</span></div>`).join("")}</div>` : "";
+}
+
+function renderPins() {
+  const refs = (S.draft.refs || {})[S.module] || [];
+  $("pins").innerHTML = `<h3>這個模組釘選的參考（會列在規格書）</h3>` + (refs.length
+    ? `<ul class="pins">${refs.map((r, i) => `<li><span class="pin-kind">${esc(r.kind_zh || { product: "競品", article: "條文", reg: "法規", law: "法規動態", news: "新聞", market: "市場" }[r.kind] || "")}</span>
+        ${r.url ? `<a href="${esc(r.url)}" target="_blank">${esc(r.title)}</a>` : esc(r.title)}${r.note ? `<span class="muted small">　${esc(r.note)}</span>` : ""}
+        <button class="ghost tiny" data-i="${i}" title="移除">×</button></li>`).join("")}</ul>`
+    : '<p class="small muted">在右邊各分頁按「＋ 釘選」，把要引用的競品條文、法規、新聞、市場數據放進規格書。</p>');
+  $("pins").querySelectorAll("button[data-i]").forEach(b => b.onclick = () => {
+    S.draft.refs[S.module].splice(+b.dataset.i, 1); renderPins(); scheduleSave();
+  });
+}
+function pin(ref) {
+  S.draft.refs = S.draft.refs || {};
+  const list = S.draft.refs[S.module] = S.draft.refs[S.module] || [];
+  if (list.some(r => r.title === ref.title && r.url === ref.url)) return;
+  list.push(ref);
+  renderPins();
+  scheduleSave();
+}
+
+function renderAll() {
+  setHash();
+  renderSteps();
+  renderForm();
+  renderPins();
+  renderTabs();
+}
+
+// ================================================================ 右：情境分頁
+const TABS = [["comp", "競品"], ["law", "法規"], ["news", "新聞"], ["market", "市場"]];
+function renderTabs() {
+  const c = S.ctx;
+  const n = c ? { comp: c.competitors.n, law: c.regs.length + c.law.length, news: c.news.length, market: c.market.length } : {};
+  $("tabs").innerHTML = TABS.map(([k, z]) => `<button class="tab${S.tab === k ? " on" : ""}" data-t="${k}">${z}${c ? ` <span class="small muted">${n[k]}</span>` : ""}</button>`).join("");
+  $("tabs").querySelectorAll(".tab").forEach(b => b.onclick = () => { S.tab = b.dataset.t; setHash(); renderTabs(); renderCtx(); });
+}
+
+async function loadContext() {
+  const p = new URLSearchParams({ module: S.module, id: S.draft.id });
+  if (S.product) p.set("product", S.product);
+  $("ctx").style.opacity = .5;
+  S.ctx = await getJSON(`/api/lab/context?${p}`);
+  $("ctx").style.opacity = 1;
+  renderTabs();
+  renderCtx();
+}
+
+let pinStore = [];
+function pinBtn(ref) { pinStore.push(ref); return `<button class="ghost tiny pinb" data-p="${pinStore.length - 1}">＋ 釘選</button>`; }
+function bindPins() { $("ctx").querySelectorAll(".pinb").forEach(b => b.onclick = () => { pin(pinStore[+b.dataset.p]); b.textContent = "已釘選"; b.disabled = true; }); }
+
+function renderCtx() {
+  if (!S.ctx) return;
+  Charts.length = 0;
+  pinStore = [];
+  ({ comp: ctxComp, law: ctxLaw, news: ctxNews, market: ctxMarket })[S.tab]();
+  bindPins();
+}
+
+function fmtVal(v) {
+  if (v === true) return "是";
+  if (v === false) return "否";
+  if (Array.isArray(v)) return v.join("、");
+  return v ?? "—";
+}
+
+function ctxComp() {
+  const c = S.ctx.competitors, m = S.modules.find(x => x.id === S.module), mine = S.draft.fields || {};
+  if (!c.n) { $("ctx").innerHTML = '<p class="muted">還沒有競品資料（先跑 M3 公司來源與 --parse）。</p>'; return; }
+  const scope = c.line ? `同險種（${esc(c.line)}）` : "全部投資型（先在「商品定位」選險種，會只看同險種）";
+  let h = `<p class="ctx-sub">${scope}：${c.n} 個商品，其中${esc(short(S.selfCo))} ${c.self_n} 個。數字是從條款與附表自動擷取，請點原文核對。</p>`;
+  const fields = m.fields.filter(fd => fd.feature);
+  if (fields.length) {
+    h += `<div class="dist-grid">` + fields.map(fd => {
+      const s = c.fields[fd.id];
+      let body = '<p class="small muted">擷取不到（多半寫在商品說明書或要保書，不在條款裡）。</p>';
+      if (s && s.kind === "counts") body = `<div id="dist_${fd.id}"></div>`;
+      if (s && s.kind === "range") {
+        const my = mine[fd.id];
+        const none = [...new Set(c.products.map(p => p.company))].filter(co => !s.by_company[co]).map(short);
+        body = `<div class="range"><b>${num(s.min, 1)} ～ ${num(s.max, 1)}</b>，中位數 ${num(s.median, 1)}（${s.n} 個商品）
+          ${none.length ? `<div class="small muted">擷取不到：${esc(none.join("、"))}（條款與附表裡擷取不到）</div>` : ""}
+          ${my != null ? `<div class="small">你的設定：<b>${esc(my)}</b>${my > s.max ? " — 高於全部競品" : my < s.min ? " — 低於全部競品" : ""}</div>` : ""}</div>
+          <div id="dist_${fd.id}"></div>`;
+      }
+      return `<div class="dist"><h4>${esc(fd.label)}</h4>${body}</div>`;
+    }).join("") + `</div>`;
+  }
+  const sel = c.selected;
+  h += `<h3 class="ctx-h">看一個競品的條文</h3>
+    <div class="pick-row"><select id="prodPick">${c.products.map(p => option(`${p.company}|${p.name}`,
+      `${short(p.company)}｜${p.name.replace(p.company, "")}（${p.first_date || "?"}）`, sel && p.company === sel.company && p.name === sel.name)).join("")}</select>
+      ${sel && sel.pdf ? `<a href="${esc(sel.pdf)}" target="_blank" class="small">條款 PDF</a>` : ""}
+      ${sel ? pinBtn({ kind: "product", title: `${sel.company}｜${sel.name}`, url: sel.pdf, note: "參考商品" }) : ""}</div>`;
+  if (sel) {
+    const p = c.products.find(x => x.company === sel.company && x.name === sel.name);
+    if (p && fields.length) h += `<table class="mini"><tbody>${fields.map(fd => `<tr><th>${esc(fd.label)}</th><td>${esc(fmtVal(p.features[fd.id]))}</td>
+      <td class="small muted">你的設定：${esc(fmtVal(mine[fd.id]))}</td></tr>`).join("")}</tbody></table>`;
+    h += c.articles.length ? c.articles.map(a => `<details class="art"><summary><b>${esc(a.title)}</b>
+        <span class="small muted">p.${a.page ?? "?"}</span>
+        ${sel.pdf && a.page ? `<a class="small" href="${esc(sel.pdf)}#page=${a.page}" target="_blank">原文</a>` : ""}
+        ${pinBtn({ kind: "article", title: `${short(sel.company)}｜${a.title}`, url: sel.pdf && a.page ? `${sel.pdf}#page=${a.page}` : sel.pdf, note: sel.name })}</summary>
+        <div class="article">${esc(a.text)}</div></details>`).join("")
+      : '<p class="small muted">這個商品的條款裡沒有和這個模組相關的條文標題。</p>';
+  }
+  $("ctx").innerHTML = h;
+  // 分布小圖
+  for (const fd of fields) {
+    const s = c.fields[fd.id], box = $(`dist_${fd.id}`);
+    if (!box || !s) continue;
+    const my = mine[fd.id], mineSet = new Set(Array.isArray(my) ? my : my === true ? ["是"] : my === false ? ["否"] : my != null ? [String(my)] : []);
+    if (s.kind === "counts") {
+      hbars(box, s.counts.slice(0, 8).map(([k, n, sn]) => ({ label: k.replace(/（.*）$/, ""), value: n, strong: mineSet.has(k),
+        color: mineSet.has(k) ? SERIES[0] : DEEMPH, text: `${n}（${short(S.selfCo)} ${sn}）`,
+        tip: { head: k, rows: [{ label: "個商品", value: String(n) }, { label: `個是${short(S.selfCo)}`, value: String(sn) }] } })),
+        { id: `d_${fd.id}`, labelW: 112, valueW: 120, rowH: 24 });
+    } else if (s.kind === "range") {
+      const cos = Object.entries(s.by_company);
+      hbars(box, cos.map(([co, r]) => ({ label: short(co), value: r.max, strong: co === S.selfCo,
+        color: co === S.selfCo ? SERIES[0] : DEEMPH, text: r.min === r.max ? num(r.max, 1) : `${num(r.min, 1)}～${num(r.max, 1)}`,
+        tip: { head: co, rows: [{ label: "最低", value: num(r.min, 1) }, { label: "最高", value: num(r.max, 1) }, { label: "個商品", value: String(r.n) }] } })),
+        { id: `d_${fd.id}`, labelW: 90, valueW: 90, rowH: 24, ref: mine[fd.id] != null ? { value: Number(mine[fd.id]), label: `你的設定 ${mine[fd.id]}` } : null });
+    }
+  }
+  $("prodPick").onchange = e => { S.product = e.target.value; loadContext(); };
+}
+
+function ctxLaw() {
+  const c = S.ctx;
+  let h = `<h3 class="ctx-h">主要相關法規</h3><p class="ctx-sub">法規名稱與適用條次待法遵核對；這裡只是查找起點，不是法律意見。</p>
+    <ul class="reglist">${c.regs.map(r => `<li><b>${r.url ? `<a href="${esc(r.url)}" target="_blank">${esc(r.name)}</a>` : esc(r.name)}</b>
+      <div class="small muted">${esc(r.note || "")}</div>${pinBtn({ kind: "reg", title: r.name, url: r.url || null, note: r.note })}</li>`).join("")}</ul>
+    <h3 class="ctx-h">法規動態（保發中心法規、金管會新聞稿${S.module === "sales" ? "、裁罰" : ""}）</h3>`;
+  h += c.law.length ? `<ul class="itemlist">${c.law.map(x => `<li><span class="date">${esc(x.date)}</span>
+      <span class="imp imp-${x.impact}">${IMPACT_ZH[x.impact]}</span> <span class="small muted">${esc(SRC_ZH[x.source] || x.source)}</span><br>
+      <a href="${esc(x.raw)}" target="_blank">${esc(x.title)}</a> <a class="small" href="${esc(x.url)}" target="_blank">來源</a>
+      <span class="small muted">（關鍵字：${esc(x.hit.join("、"))}）</span> ${pinBtn({ kind: "law", title: x.title, url: x.url, note: x.date })}</li>`).join("")}</ul>`
+    : '<p class="small muted">目前資料裡沒有符合這個模組關鍵字的法規動態。</p>';
+  $("ctx").innerHTML = h;
+}
+
+function ctxNews() {
+  const c = S.ctx;
+  $("ctx").innerHTML = c.news.length ? `<ul class="itemlist">${c.news.map(x => `<li><span class="date">${esc(x.date)}</span>
+      <span class="imp imp-${x.impact}">${IMPACT_ZH[x.impact]}</span> ${x.categories.map(k => `<span class="tag">${esc(k)}</span>`).join(" ")}<br>
+      <a href="${esc(x.url)}" target="_blank">${esc(x.title)}</a> <span class="small muted">（關鍵字：${esc(x.hit.join("、"))}）</span>
+      ${pinBtn({ kind: "news", title: x.title, url: x.url, note: x.date })}</li>`).join("")}</ul>`
+    : `<p class="muted">目前沒有符合這個模組關鍵字的新聞。</p><p class="small muted">新聞來源（RSS）要在 Mac 上跑 <code>python -m scheduler.run news_rss -v</code> 再 <code>--parse</code>；
+       關鍵字在 config/product_modules.yaml 的 news_keywords。</p>`;
+}
+
+function ctxMarket() {
+  const c = S.ctx;
+  if (!c.market.length) { $("ctx").innerHTML = '<p class="muted">這個模組沒有對應的市場數據，或資料還沒下載。</p>'; return; }
+  $("ctx").innerHTML = c.market.map((v, i) => `<div class="mk"><h3 class="ctx-h">${esc(v.title)}</h3>
+    ${v.note ? `<p class="ctx-sub">${esc(v.note)}</p>` : ""}<div id="mk_${i}"></div>
+    <p class="small muted">來源：${esc(v.source)}｜<a href="${esc(v.link)}">市場數據頁</a> ${pinBtn({ kind: "market", title: v.title, url: v.link, note: v.source })}</p></div>`).join("");
+  c.market.forEach((v, i) => {
+    const box = $(`mk_${i}`);
+    if (v.kind === "stack100") {
+      const cols = [SERIES[1], SERIES[2], SERIES[3]];
+      stack100(box, v.rows.map(r => ({ label: short(r.label), parts: r.parts, note: r.note, strong: r.label === v.self })), v.series,
+        { id: `mk${i}`, colors: cols, ink: ["#0b0b0b", "#0b0b0b", "#0b0b0b"], labelW: 96 });
+      box.insertAdjacentHTML("beforeend", legend(v.series.map((s, j) => [s, cols[j]])));
+    } else if (v.kind === "dumbbell") {
+      dumbbell(box, v.items.map(it => ({ label: short(it.label), a: it.a, b: it.b, strong: it.label === v.self, color: it.label === v.self ? SERIES[0] : "var(--ink2)" })),
+        { id: `mk${i}`, fmt: x => x + "%", max: 100, aName: "銷售中", bName: "近 12 個月新品（藍色為自家）", color: "var(--ink2)", labelW: 96 });
+    } else if (v.kind === "hbars") {
+      hbars(box, v.items.map(it => ({ label: it.label, value: it.value ?? 0, strong: it.strong, color: it.strong ? SERIES[1] : DEEMPH, text: signed(it.value) })),
+        { id: `mk${i}`, labelW: 80, valueW: 70 });
+    } else if (v.kind === "list") {
+      box.innerHTML = `<div class="tv-wrap"><table><thead><tr>${v.head.map(x => `<th>${esc(x)}</th>`).join("")}</tr></thead><tbody>${
+        v.rows.map(r => `<tr>${r.map(x => `<td>${esc(x)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+    } else if (v.kind === "indicators") {
+      box.innerHTML = v.indicators.map((ind, k) => `<h4 class="small">${esc(ind.name)}（中位數 ${ind.median.toFixed(1)}%，${ind.n} 家）</h4><div id="mk_${i}_${k}"></div>`).join("");
+      v.indicators.forEach((ind, k) => hbars($(`mk_${i}_${k}`), ind.items.map(it => ({ label: short(it.label), value: it.value, strong: it.strong,
+        color: it.strong ? SERIES[0] : DEEMPH, text: `${it.value.toFixed(1)}%（${it.rank}/${ind.n}）` })),
+        { id: `mk${i}_${k}`, labelW: 90, valueW: 100, rowH: 24, dots: ind.name.startsWith("繼續率"), fmt: x => x + "%",
+          ref: { value: ind.median, label: `中位數 ${ind.median.toFixed(1)}%` } }));
+    }
+  });
+}
+
+// ================================================================ 啟動
+(async () => {
+  const meta = await renderNav("lab");
+  S.modules = await getJSON("/api/lab/modules");
+  S.selfCo = meta.self_company || "";
+  const h = qsGet();
+  S.module = h.get("m") || S.modules[0].id;
+  S.tab = h.get("tab") || "comp";
+  await loadDrafts(h.get("id"));
+})();
+</script>
+</body>
+</html>
