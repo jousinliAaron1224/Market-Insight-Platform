@@ -26,7 +26,7 @@
 <nav id="nav"></nav>
 <main class="wrap spec">
   <header class="page-h">
-    <div><h1 id="title">商品規格書</h1><div class="sub" id="sub"></div></div>
+    <div><div class="eyebrow">商品規格書</div><h1 id="title">商品規格書</h1><div class="sub" id="sub"></div></div>
     <div class="page-actions"><a id="back" class="btn">← 回工作台</a><button onclick="print()" class="primary" type="button">列印／存成 PDF</button></div>
   </header>
   <div class="detail">
@@ -54,7 +54,7 @@ const metaItem = (ic, k, v, dim) => `<div class="meta-item">${icon(ic)}<div>${k 
   const d = await getJSON(`/api/lab/spec?id=${id}`);
   document.title = `${d.draft.name}｜商品規格書`;
   document.getElementById("title").textContent = d.draft.name;
-  document.getElementById("sub").textContent = "商品規格書（由商品工作台自動彙整）";
+  document.getElementById("sub").textContent = "由商品工作台自動彙整，可列印或存成 PDF";
   const checks = d.checks;
   const cnt = l => checks.filter(c => c.level === l).length;
   const f = Object.fromEntries(d.modules.flatMap(m => m.fields.map(x => [x.id, x.value])));

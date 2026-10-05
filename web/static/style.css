@@ -372,3 +372,95 @@ html { scroll-padding-top: 80px; scroll-behavior: smooth; }
 .fchip { max-width: 100%; min-width: 0; }
 .fchip select { min-width: 0; max-width: min(360px, calc(100vw - 120px)); text-overflow: ellipsis; }
 .page-h > div { min-width: 0; }
+
+/* ================================================================ 自有識別（2026-10-05：版型參考課程網，但視覺做出區別）
+   深海軍藍導覽列＋青綠主色、靠左的頁首與小標、分段式分頁、方角搜尋框、白色列表頭＋左側色條、細線標題區塊 */
+:root {
+  --bg: #f4f5f2; --surface-2: #f1f3f1; --surface-3: #e7ebe8;
+  --ink: #16202c; --ink2: #4f5a66;
+  --primary: #0d6b67; --primary-hover: #09524f; --primary-50: #e8f4f2; --primary-100: #c6e5df;
+  --accent: #2fb3a3; --nav: #0f1f38; --nav-ink: rgba(255, 255, 255, .74);
+  --line: #e2e5e2; --line-2: #d3d8d4;
+}
+/* 導覽列：深色 */
+.topbar { background: var(--nav); border-bottom: 0; box-shadow: 0 1px 0 rgba(0,0,0,.2); }
+.brand { color: #fff; display: inline-flex; align-items: center; gap: 10px; font-size: 18px; }
+.brand .logo { width: 28px; height: 28px; flex: none; }
+.topnav a { color: var(--nav-ink); border-radius: 6px; position: relative; }
+.topnav a:hover { background: rgba(255,255,255,.08); color: #fff; }
+.topnav a.here { color: #fff; font-weight: 650; }
+.topnav a.here::after { content: ""; position: absolute; left: 12px; right: 12px; bottom: -13px; height: 3px; border-radius: 3px 3px 0 0; background: var(--accent); }
+.topnav-sep { color: rgba(255,255,255,.45); border-left-color: rgba(255,255,255,.18); }
+.dbchip { background: rgba(255,255,255,.06); border-color: rgba(255,255,255,.16); color: var(--nav-ink); }
+@media (max-width: 900px) { .topnav a.here::after { bottom: -4px; } }
+
+/* 頁首：靠左＋小標，而不是置中大標題 */
+.hero { text-align: left; padding: 30px 0 6px; }
+.hero h1 { font-size: 30px; }
+.hero p { margin: 8px 0 0; max-width: 760px; }
+.hero.center { text-align: center; }
+.hero.center p { margin: 8px auto 0; }
+.eyebrow { font-size: 12px; font-weight: 700; letter-spacing: .12em; color: var(--primary); margin-bottom: 6px; text-transform: uppercase; }
+.page-h { padding-top: 26px; }
+
+/* 分頁：分段式控制 */
+.subnav { display: inline-flex; gap: 2px; background: var(--surface-3); padding: 4px; border-radius: 10px; justify-content: flex-start; flex-wrap: wrap; }
+.subnav button, .subnav a { font-size: 14.5px; padding: 7px 16px; border-radius: 7px; border-bottom: 0; color: var(--ink2); }
+.subnav button:hover, .subnav a:hover { color: var(--ink); background: rgba(255,255,255,.55); }
+.subnav .on { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(16,24,40,.12); border-bottom: 0; }
+.subnav .cnt { margin-left: 4px; }
+.subnav.left { display: flex; background: transparent; padding: 0; border-bottom: 1px solid var(--line); border-radius: 0; gap: 0 4px; }
+.subnav.left button { border-radius: 0; padding: 8px 12px; border-bottom: 2px solid transparent; }
+.subnav.left .on { background: transparent; box-shadow: none; border-bottom-color: var(--primary); color: var(--primary); }
+
+/* 搜尋：方角框、左側圖示、文字按鈕 */
+.searchbar { max-width: none; border-radius: 12px; padding: 6px 6px 6px 14px; box-shadow: var(--shadow); gap: 10px; }
+.searchbar::before { content: ""; width: 20px; height: 20px; flex: none; opacity: .55;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2316202c' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-3.5-3.5'/%3E%3C/svg%3E") center / contain no-repeat; }
+.searchbar label { font-size: 0; }
+.searchbar input { font-size: 15px; padding: 8px 0; }
+.searchbar .go { width: auto; height: 42px; border-radius: 9px; padding: 0 18px; gap: 6px; font-size: 14.5px; font-weight: 600; }
+.searchbar .go .ic { width: 18px; height: 18px; }
+.searchbar:focus-within { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-100); }
+.chips { justify-content: flex-start; max-width: none; margin: 12px 0 4px; }
+.fchip { box-shadow: none; background: var(--surface); border-radius: 8px; }
+label.fchip:has(> input:checked) { background: var(--primary-50); border-color: var(--primary-100); color: var(--primary); }
+.fchip input[type=checkbox], .fchip input[type=radio] { accent-color: var(--primary); }
+
+/* 列表：白色表頭＋計數，列的左側色條 */
+.listhead { background: var(--surface); color: var(--ink); border-bottom: 1px solid var(--line); font-weight: 650; padding: 13px 20px; }
+.listhead button, .listhead .btn { background: var(--surface); border-color: var(--line-2); color: var(--ink); }
+.listhead button:hover { background: var(--surface-2); }
+.listhead #go:not(:disabled) { background: var(--primary); border-color: var(--primary); color: #fff; }
+.listhead select { padding: 4px 8px; }
+.list { border-top: 3px solid var(--primary); }
+.row { border-left: 3px solid transparent; padding-left: 17px; }
+.row:hover { background: #fafbfa; }
+.row-title { color: var(--ink); }
+a.row-title:hover { color: var(--primary); }
+.row.stripe-high { border-left-color: #d0453a; }
+.row.stripe-medium { border-left-color: #e0a422; }
+.row.stripe-low { border-left-color: var(--line-2); }
+.row.picked { background: var(--primary-50); border-left-color: var(--primary); }
+.chip.blue, .chip.blue .ic { color: var(--primary); }
+.tag.blue, .tag-s { background: var(--primary-50); color: var(--primary); }
+
+/* 標題區塊：細線＋左側小色塊（不是整條灰底） */
+.sect-h { background: transparent; border-radius: 0; padding: 10px 0 10px 12px; border-bottom: 1px solid var(--line); position: relative; }
+.sect-h::before { content: ""; position: absolute; left: 0; top: 50%; width: 4px; height: 18px; margin-top: -9px; border-radius: 2px; background: var(--accent); }
+.sect-h .ic { color: var(--primary); }
+.sect-b { padding: 12px 2px 4px; }
+
+/* 詳細頁左欄：淺色底 */
+.detail-side { background: #f8faf8; border-radius: var(--radius) 0 0 var(--radius); }
+.meta-item .ic { color: var(--primary); }
+@media (max-width: 900px) { .detail-side { border-radius: var(--radius) var(--radius) 0 0; } }
+
+/* 數字卡：上緣色條 */
+.st { border-top: 3px solid var(--accent); }
+h2.sec .ic { color: var(--primary); }
+
+/* 工作台 */
+.lab { border-top: 3px solid var(--primary); }
+.step.on { background: var(--primary-50); color: var(--primary); }
+.form-h .no { background: var(--primary); border-radius: 8px; }

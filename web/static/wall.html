@@ -10,6 +10,7 @@
 <nav id="nav"></nav>
 <main class="wrap">
   <header class="hero">
+    <div class="eyebrow">資料來源 · 01</div>
     <h1>情報牆</h1>
     <p>法規、新聞與商品動態依影響程度排序，每一則都標出對現有商品的影響。</p>
   </header>
@@ -23,7 +24,7 @@
     <div id="week"><div class="row-empty">載入中…</div></div>
   </section>
 
-  <div class="subnav" style="margin-top:34px">
+  <div class="subnav" style="margin-top:34px;justify-content:flex-start">
     <button type="button" class="tab" data-tab="law">法規動態</button>
     <button type="button" class="tab" data-tab="news">新聞動態</button>
   </div>
@@ -70,7 +71,7 @@ function itemHTML(it) {
     const zh = { unit: "發布單位", respondent: "受處分人", fine_twd: "罰鍰（元）", data_type: "資料類別", feed: "新聞來源", doc_no: "發文字號" }[k] || k;
     return `<span>${zh} ${esc(k === "fine_twd" ? Number(v).toLocaleString() : v)}</span>`;
   }).join("");
-  return `<div class="row${it.hidden ? " hidden-item" : ""}">
+  return `<div class="row stripe-${it.impact}${it.hidden ? " hidden-item" : ""}">
     <div>
       <a class="row-title" style="font-size:16.5px" href="${esc(it.url)}" target="_blank" rel="noopener">${esc(it.title)}</a>
       <div class="row-meta">
@@ -177,7 +178,7 @@ function setTab(t) {
   if (h.get("days")) document.getElementById("days").value = h.get("days");
   document.getElementById("days").onchange = () => { loadWeek(); history.replaceState(null, "", "#" + new URLSearchParams({ tab, days: document.getElementById("days").value })); };
   document.querySelectorAll(".tab").forEach(b => b.onclick = () => setTab(b.dataset.tab));
-  document.getElementById("goq").innerHTML = icon("search");
+  document.getElementById("goq").innerHTML = icon("search") + "<span>搜尋</span>";
   document.getElementById("goq").onclick = loadList;
   form.addEventListener("change", loadList);
   form.q.addEventListener("input", () => { clearTimeout(form._t); form._t = setTimeout(loadList, 250); });

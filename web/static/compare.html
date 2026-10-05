@@ -10,6 +10,7 @@
 <nav id="nav"></nav>
 <main class="wrap">
   <header class="hero">
+    <div class="eyebrow">資料來源 · 02</div>
     <h1>競品比較</h1>
     <p>選 2–4 個商品並排比較；每個欄位都附條款條號與頁碼，點了直接開原文 PDF 那一頁。</p>
   </header>
@@ -242,7 +243,7 @@ document.getElementById("clear").onclick = () => { picked = []; updatePicked(); 
   form.company.insertAdjacentHTML("beforeend", (m.companies || []).map(c => option(c, c)).join(""));
   form.line.insertAdjacentHTML("beforeend", (m.lines || []).map(c => option(c, c)).join(""));
   form.addEventListener("change", loadList);
-  document.getElementById("goq").innerHTML = icon("search");
+  document.getElementById("goq").innerHTML = icon("search") + "<span>搜尋</span>";
   document.getElementById("goq").onclick = loadList;
   form.q.addEventListener("input", () => { clearTimeout(form._t); form._t = setTimeout(loadList, 250); });
   // 從網址還原（可以把比較結果的網址存起來或傳給別人）

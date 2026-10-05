@@ -78,7 +78,7 @@ async function renderNav(here) {
   const nav = document.getElementById("nav");
   nav.className = "topbar";
   nav.innerHTML = `<div class="topbar-in">
-      <a class="brand" href="/">商品與市場情報平台</a>
+      <a class="brand" href="/"><svg class="logo" viewBox="0 0 28 28" aria-hidden="true"><rect x="2" y="2" width="24" height="24" rx="7" fill="#2fb3a3"/><path d="M8 18.5 12.5 14l3 3L20 10" fill="none" stroke="#0f1f38" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>商品與市場情報平台</span></a>
       <div class="topnav">${NAV.map(([k, href, zh], i) => (i === 1 ? '<span class="topnav-sep">資料來源</span>' : "")
         + `<a href="${href}" class="${here === k ? "here" : ""}">${zh}</a>`).join("")}</div>
       <div class="topright"><span class="dbchip" id="dbinfo" title="">${icon("db")}<span>資料庫</span></span></div>
