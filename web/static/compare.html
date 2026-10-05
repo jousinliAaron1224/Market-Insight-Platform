@@ -91,7 +91,7 @@ document.getElementById("plist").addEventListener("click", e => {
   if (picked.some(p => key(p) === b.dataset.k)) {
     picked = picked.filter(p => key(p) !== b.dataset.k);
   } else {
-    if (picked.length >= MAX) { alert(`最多比較 ${MAX} 個商品`); return; }
+    if (picked.length >= MAX) { document.getElementById("picked").textContent = `最多比較 ${MAX} 個商品，先移除一個`; return; }
     picked.push({ company, name });
   }
   updatePicked(); saveHash(); loadList();

@@ -49,7 +49,8 @@ const MOD_ICON = { positioning: "target", underwriting: "user", benefits: "shiel
 const metaItem = (ic, k, v, dim) => `<div class="meta-item">${icon(ic)}<div>${k ? `<div class="k">${esc(k)}</div>` : ""}<div class="v${dim ? " dim" : ""}">${v}</div></div></div>`;
 (async () => {
   await renderNav("lab");
-  const id = new URLSearchParams(location.search).get("id");
+  let id = new URLSearchParams(location.search).get("id");
+  if (!id) { try { id = sessionStorage.getItem("specId"); } catch { /* 無 */ } }
   document.getElementById("back").href = `/#id=${id}`;
   const d = await getJSON(`/api/lab/spec?id=${id}`);
   document.title = `${d.draft.name}｜商品規格書`;

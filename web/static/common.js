@@ -87,7 +87,7 @@ async function renderNav(here) {
   const m = await getJSON("/api/meta");
   const db = document.getElementById("dbinfo");
   db.title = m.db;
-  db.querySelector("span").textContent = `事件 ${m.events.toLocaleString()}｜未處理 ${m.pending}`;
+  db.querySelector("span").textContent = m.snapshot_at ? `資料快照 ${m.snapshot_at.slice(0, 10)}` : `事件 ${m.events.toLocaleString()}｜未處理 ${m.pending}`;
   if (!m.parsed) {
     nav.insertAdjacentHTML("afterend",
       `<div class="banner">這個資料庫還沒解析。先在終端機跑 <code>python -m scheduler.run --parse</code>，再重新整理。</div>`);

@@ -9,5 +9,6 @@ data/raw/*
 !data/raw/.gitkeep
 data/snapshots/
 data/replay/
+data/site/
 .DS_Store
 .Rhistory

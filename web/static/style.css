@@ -481,3 +481,7 @@ h2.sec .ic { color: var(--primary); }
 a.ev-mini:hover { color: var(--primary); text-decoration: none; }
 .ctx-top { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 10px; }
 .pane > h2.sec:first-child { margin-top: 6px; }
+button.danger { color: #fff; background: var(--bad); border-color: var(--bad); }
+.src-frame { position: fixed; top: 64px; left: 0; right: 0; bottom: 0; width: 100%; height: calc(100% - 64px); border: 0; background: var(--bg); }
+html.in-frame .topbar, html.in-frame .banner { display: none; }
+@media (max-width: 900px) { .src-frame { top: 96px; height: calc(100% - 96px); } }

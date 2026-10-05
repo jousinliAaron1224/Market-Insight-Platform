@@ -99,6 +99,7 @@ async function openDraft(id) {
   S.draft = await getJSON(`/api/draft?id=${id}`);
   $("draftSel").value = id;
   $("lnkSpec").href = `/spec.html?id=${id}`;
+  try { sessionStorage.setItem("specId", id); } catch { /* 沒有 sessionStorage 時只靠網址參數 */ }
   if (!S.module) S.module = S.modules[0].id;
   S.product = null;
   renderAll();
@@ -143,7 +144,16 @@ $("btnCreate").onclick = async () => {
 };
 $("draftSel").onchange = () => openDraft($("draftSel").value);
 $("btnDel").onclick = async () => {
-  if (!S.draft || !confirm(`刪除草案「${S.draft.name}」？刪除後無法復原。`)) return;
+  if (!S.draft) return;
+  const b = $("btnDel");
+  if (!b.dataset.armed) {                 // 頁面內確認（嵌入的頁面不能用 confirm 對話框）
+    b.dataset.armed = "1";
+    b.innerHTML = icon("trash") + "再按一次確認刪除";
+    b.classList.add("danger");
+    setTimeout(() => { delete b.dataset.armed; b.innerHTML = icon("trash") + "刪除"; b.classList.remove("danger"); }, 4000);
+    return;
+  }
+  delete b.dataset.armed; b.innerHTML = icon("trash") + "刪除"; b.classList.remove("danger");
   await fetch(`/api/draft?id=${S.draft.id}`, { method: "DELETE" });
   S.draft = null;
   await loadDrafts();

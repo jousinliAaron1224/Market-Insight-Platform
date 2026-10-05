@@ -84,7 +84,7 @@ function itemHTML(it) {
       <div>${pi.summary ? esc(pi.summary) : '<span class="muted">對現有商品沒有直接影響</span>'}</div>
       <details data-id="${it.raw_doc_id}"><summary>細節</summary><div class="detail-box">載入中…</div></details>
     </div>
-    <div class="row-act">${it.raw ? `<a class="btn soft tiny" href="${esc(it.raw)}" target="_blank">原文存檔</a>` : ""}</div>
+    <div class="row-act">${it.raw ? `<a class="btn soft tiny" href="${esc(it.raw)}" target="_blank">原文</a>` : ""}</div>
   </div>`;
 }
 
