@@ -12,7 +12,6 @@
   <header class="hero">
     <div class="eyebrow">資料來源 · 02</div>
     <h1>競品比較</h1>
-    <p>選 2–4 個商品並排比較；每個欄位都附條款條號與頁碼，點了直接開原文 PDF 那一頁。</p>
   </header>
   <form id="f" onsubmit="return false" style="margin-top:22px">
     <div class="searchbar">
@@ -74,11 +73,7 @@ async function loadList() {
           ${p.articles != null ? `<span class="tag">${p.articles} 條</span>` : '<span class="tag line">無條款</span>'}
         </div>
       </div>
-      <div class="row-side">
-        <div class="small muted">待補欄位</div>
-        <div>${p.missing ? (esc(p.missing.map(m => FIELD_ZH[m] || m).join("、")) || "無") : '<span class="muted">無條款</span>'}</div>
-        ${(p.warnings || []).length ? `<div class="small warn">${esc(p.warnings.join("；"))}</div>` : ""}
-      </div>
+      <div class="row-side">${(p.warnings || []).length ? `<span class="small warn">${esc(p.warnings.join("；"))}</span>` : ""}</div>
       <div class="row-act"><button type="button" class="${sel.has(key(p)) ? "primary" : "soft"} tiny pickb" data-k="${esc(key(p))}">${sel.has(key(p)) ? icon("check") + "已加入" : icon("plus") + "加入比較"}</button></div>
     </div>`).join("") || `<div class="row-empty">沒有符合條件的商品</div>`;
 }
@@ -108,8 +103,8 @@ function evLink(p, field) {
   const ev = c && c.evidence && c.evidence[field];
   if (!ev) return "";
   const label = (ev.article_no ? `第${ev.article_no}條 ` : "") + (ev.title || "") + (ev.page ? ` p.${ev.page}` : "");
-  if (ev.page && c.raw) return `<a class="ev" href="${esc(c.raw)}#page=${ev.page}" target="_blank">出處：${esc(label)}</a>`;
-  return `<span class="ev">出處：${esc(label)}</span>`;
+  if (ev.page && c.raw) return ` <a class="ev-mini" href="${esc(c.raw)}#page=${ev.page}" target="_blank" title="出處：${esc(label)}">${icon("file")}p.${ev.page}</a>`;
+  return ` <span class="ev-mini" title="出處：${esc(label)}">${icon("file")}</span>`;
 }
 
 function missingNote(p, field) {
@@ -146,9 +141,13 @@ const ROWS = [
 
 function renderFields() {
   const head = `<tr><th class="field"></th>${current.map(p => `<th style="position:static;white-space:normal"><span class="small muted">${esc(p.company)}</span><br>${esc(p.name.replace(p.company, ""))}</th>`).join("")}</tr>`;
-  const body = ROWS.map(([label, f]) => `<tr><th class="field">${esc(label)}</th>${current.map(p => `<td>${f(p)}</td>`).join("")}</tr>`).join("");
-  return `<section class="card" style="margin-top:22px"><div class="sect"><div class="sect-h">${icon("grid")}欄位並排<span class="right">出處連到原文 PDF 那一頁</span></div>
-    <div class="sect-b" style="overflow-x:auto"><table class="cmp">${head}${body}</table></div></div></section>`;
+  const tr = ([label, f]) => `<tr><th class="field">${esc(label)}</th>${current.map(p => `<td>${f(p)}</td>`).join("")}</tr>`;
+  const CORE = ["險種", "幣別", "給付項目", "繳費方式", "首次核准／最近修正", "條款原文"];
+  const body = ROWS.filter(r => CORE.includes(r[0])).map(tr).join("");
+  const more = ROWS.filter(r => !CORE.includes(r[0])).map(tr).join("");
+  return `<section class="card" style="margin-top:22px"><div class="sect"><div class="sect-h">${icon("grid")}欄位並排</div>
+    <div class="sect-b" style="overflow-x:auto"><table class="cmp">${head}${body}</table>
+    <details class="tv"><summary>更多欄位（除外責任、利率、附約、文號、版本…）</summary><table class="cmp">${head}${more}</table></details></div></div></section>`;
 }
 
 // ---------------- 條文對照 ----------------
@@ -183,7 +182,7 @@ function renderArticleControls(sel, kw) {
   const { titles, count } = titleOptions(kw);
   const opts = [option("__preamble__", "條款前言（商品名稱、給付項目、文號）", sel === "__preamble__")]
     .concat(titles.map(t => option(t, `${t}（${count[t]}/${current.length}）`, t === sel)));
-  return `<div class="sect-h">${icon("file")}條文對照<span class="right">括號內是幾個商品有這一條；條文標題來自示範條款，各家大多一致</span></div>
+  return `<div class="sect-h">${icon("file")}條文對照</div>
     <div class="chips" style="justify-content:flex-start;margin:12px 0">
       <label class="fchip"><span class="k">條文</span><select id="artsel">${opts.join("")}</select></label>
       <label class="fchip">${icon("search")}<input type="search" id="artkw" size="16" placeholder="找含這個字的條文" value="${esc(kw || "")}"></label>

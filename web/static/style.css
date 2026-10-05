@@ -464,3 +464,20 @@ h2.sec .ic { color: var(--primary); }
 .lab { border-top: 3px solid var(--primary); }
 .step.on { background: var(--primary-50); color: var(--primary); }
 .form-h .no { background: var(--primary); border-radius: 8px; }
+
+/* ================================================================ 少字：說明收合成 ⓘ */
+.folded { display: none !important; }
+.folded.open { display: block !important; margin-top: 4px; }
+.info-btn { border: 0; background: transparent; box-shadow: none; padding: 2px; margin-left: 6px; color: var(--muted); vertical-align: middle; border-radius: 50%; display: inline-flex; }
+.info-btn:hover, .info-btn.on { color: var(--primary); background: var(--primary-50); }
+.info-btn .ic { width: 15px; height: 15px; }
+.info-row { display: flex; justify-content: flex-end; margin: -4px 0 2px; }
+.more-btn { display: block; margin: 0 auto; }
+.pane[hidden] { display: none !important; }
+.conc.compact { list-style: none; padding: 0; margin: 0 0 14px; display: flex; flex-direction: column; gap: 6px; }
+.conc.compact li { border: 0; padding: 8px 12px; background: var(--surface); border-left: 3px solid var(--accent); border-radius: 6px; font-size: 13.5px; box-shadow: var(--shadow); }
+.ev-mini { display: inline-flex; align-items: center; gap: 2px; font-size: 11.5px; color: var(--muted); background: var(--surface-2); border-radius: 5px; padding: 0 5px; margin-left: 4px; white-space: nowrap; vertical-align: middle; }
+.ev-mini .ic { width: 12px; height: 12px; }
+a.ev-mini:hover { color: var(--primary); text-decoration: none; }
+.ctx-top { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 10px; }
+.pane > h2.sec:first-child { margin-top: 6px; }

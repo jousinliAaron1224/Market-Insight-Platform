@@ -70,8 +70,7 @@ const metaItem = (ic, k, v, dim) => `<div class="meta-item">${icon(ic)}<div>${k 
     + metaItem("grid", "同險種競品", `${d.n_competitors} 個商品`)
     + (d.draft.base ? metaItem("link", "複製自", esc(d.draft.base.replace("|", "｜"))) : "")
     + metaItem("calendar", "建立／最後修改", `${esc((d.draft.created_at || "").slice(0, 10))}<br><span class="small muted">${esc((d.draft.updated_at || "").slice(0, 16).replace("T", " "))} UTC</span>`);
-  let h = `<p class="disclaimer">「同險種競品」欄位是從各公司公開條款與附表自動擷取（${d.n_competitors} 個同險種商品）；
-      法規名稱與適用條次待法遵核對；檢查事項只是提醒要確認的地方，不是法律意見。</p>`;
+  let h = `<p class="disclaimer">競品數字為自動擷取，法規待法遵核對；本文件不是法律意見。</p>`;
   d.modules.forEach((m, i) => {
     const c = checks.filter(x => x.module === m.id);
     h += `<section class="sect"><div class="sect-h">${icon(MOD_ICON[m.id] || "file")}${i + 1}. ${esc(m.name)}

@@ -12,7 +12,6 @@
   <header class="hero">
     <div class="eyebrow">資料來源 · 01</div>
     <h1>情報牆</h1>
-    <p>法規、新聞與商品動態依影響程度排序，每一則都標出對現有商品的影響。</p>
   </header>
 
   <section class="list" style="margin-top:24px">
@@ -47,7 +46,7 @@
     </div>
   </form>
   <section class="list" style="margin-top:18px">
-    <div class="listhead"><span id="count">載入中…</span><span class="right small" style="opacity:.85">依影響程度、日期排序</span></div>
+    <div class="listhead"><span id="count">載入中…</span></div>
     <div id="list"></div>
   </section>
 </main>
@@ -73,18 +72,16 @@ function itemHTML(it) {
   }).join("");
   return `<div class="row stripe-${it.impact}${it.hidden ? " hidden-item" : ""}">
     <div>
-      <a class="row-title" style="font-size:16.5px" href="${esc(it.url)}" target="_blank" rel="noopener">${esc(it.title)}</a>
+      <a class="row-title" style="font-size:16.5px" href="${esc(it.url)}" target="_blank" rel="noopener" title="${esc(extra.replace(/<[^>]+>/g, " "))}">${esc(it.title)}</a>
       <div class="row-meta">
         <span class="tag imp-${it.impact}">${IMPACT_ZH[it.impact]}影響</span>
         <span class="chip">${icon("calendar")}${esc(it.date)}</span>
         <span class="chip blue">${icon("building")}${esc(it.source)}</span>
-        ${it.categories.map(c => `<span class="tag">${esc(c)}</span>`).join("") || '<span class="tag line">未分類</span>'}
+        ${it.categories.slice(0, 2).map(c => `<span class="tag">${esc(c)}</span>`).join("")}
       </div>
-      ${extra ? `<div class="row-foot">${extra}</div>` : ""}
     </div>
     <div class="row-side">
-      <div class="small muted">對現有商品的影響</div>
-      <div>${pi.summary ? esc(pi.summary) : '<span class="muted">—</span>'}</div>
+      <div>${pi.summary ? esc(pi.summary) : '<span class="muted">對現有商品沒有直接影響</span>'}</div>
       <details data-id="${it.raw_doc_id}"><summary>細節</summary><div class="detail-box">載入中…</div></details>
     </div>
     <div class="row-act">${it.raw ? `<a class="btn soft tiny" href="${esc(it.raw)}" target="_blank">原文存檔</a>` : ""}</div>
@@ -158,9 +155,16 @@ async function loadList() {
   if (form.only_self.checked) items = items.filter(i => i.product_impact.self_count > 0);
   document.getElementById("count").textContent = `${tab === "news" ? "新聞動態" : "法規動態"}：共 ${items.length} 筆`;
   const empty = tab === "news"
-    ? "目前沒有新聞。新聞來源是中央社財經與自由時報財經 RSS（以保險關鍵字過濾），RSS 只提供最近幾十則；請在 Mac 執行 python -m scheduler.run news_rss，或用 --serve 定時抓取讓新聞累積。"
+    ? "目前沒有新聞。在 Mac 執行 python -m scheduler.run news_rss 抓取。"
     : "沒有符合條件的項目";
-  document.getElementById("list").innerHTML = tableHTML(items, empty);
+  const PAGE = 15;
+  const draw = n => {
+    document.getElementById("list").innerHTML = tableHTML(items.slice(0, n), empty)
+      + (items.length > n ? `<div style="padding:14px"><button type="button" class="more-btn" id="more">顯示更多（還有 ${items.length - n} 筆）</button></div>` : "");
+    const m = document.getElementById("more");
+    if (m) m.onclick = () => draw(n + PAGE);
+  };
+  draw(PAGE);
 }
 
 function setTab(t) {

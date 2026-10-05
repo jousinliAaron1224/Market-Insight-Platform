@@ -12,19 +12,23 @@
   <header class="hero">
     <div class="eyebrow">資料來源 · 03</div>
     <h1>市場數據</h1>
-    <p>三個問題：供給面（競品出手節奏）、需求面（市場往哪個險種移動）、市占率與公司比較（法巴在市場的位置）。每個結論都附資料來源，每張圖下方都可以展開表格。</p>
   </header>
-  <nav class="subnav" style="margin:18px 0 22px;justify-content:flex-start"><a href="#conc">重點結論</a><a href="#supply">供給面</a><a href="#demand">需求面</a><a href="#companies">市占率與公司比較</a></nav>
+  <nav class="subnav" id="panes" style="margin:16px 0 20px">
+    <button type="button" data-p="overview" class="on">總覽</button><button type="button" data-p="supply">供給面</button>
+    <button type="button" data-p="demand">需求面</button><button type="button" data-p="companies">公司比較</button></nav>
 
+  <div class="pane" data-pane="overview">
   <section class="kpis" id="kpis"></section>
-
   <section class="card" id="conc">
     <div class="sect" style="margin:0"><div class="sect-h" data-ic="target">重點結論</div>
     <div class="sect-b"><ul class="conc" id="conclusions"><li class="muted">載入中…</li></ul></div></div>
   </section>
+  </div>
+  <div class="pane" data-pane="supply" hidden>
 
   <h2 class="sec" id="supply" data-ic="layers">供給面：各家投資型商品的出手節奏</h2>
   <p class="sec-sub" id="supply-src"></p>
+  <ul class="conc compact" id="conc-supply"></ul>
   <div class="grid2">
     <section class="card"><h3>近 12 個月新核准商品數</h3><p class="cap" id="cap-new"></p><div id="c-new"></div><div id="t-new"></div></section>
     <section class="card"><h3>每季新核准商品數（最近 12 季）</h3><p class="cap">依核准日；清單只列現行商品，越早的季度越低估。</p><div id="c-q"></div><div id="l-q"></div><div id="t-q"></div></section>
@@ -33,13 +37,16 @@
   </div>
   <div class="grid2">
     <section class="card"><h3>條款修正集中的月份</h3><p class="cap">同一天、同一個金管會文號的大量修正＝主管機關要求的全面修正，不是各家策略調整。</p><div id="c-wave"></div><div id="t-wave"></div></section>
-    <section class="card"><h3>最近 180 天新核准的商品</h3><p class="cap">點名稱到競品比較。</p><div id="recent"></div></section>
+    <section class="card"><h3>最近 180 天新核准的商品</h3><div id="recent"></div></section>
   </div>
 
+  </div>
+  <div class="pane" data-pane="demand" hidden>
   <h2 class="sec" id="demand" data-ic="trend">需求面：全市場保費收入依險種的趨勢</h2>
   <p class="sec-sub" id="demand-src"></p>
+  <ul class="conc compact" id="conc-demand"></ul>
   <div id="demand-err"></div>
-  <section class="card"><h3>每月保費收入（最近 24 個月，億元）</h3><p class="cap">滑鼠移到柱子上看各險種與年增率。</p><div id="c-month"></div><div id="l-month"></div><div id="t-month"></div></section>
+  <section class="card"><h3>每月保費收入（最近 24 個月，億元）</h3><div id="c-month"></div><div id="l-month"></div><div id="t-month"></div></section>
   <div class="grid2">
     <section class="card"><h3 id="h-growth">各險種年增率</h3><p class="cap" id="cap-growth"></p><div id="c-growth"></div><div id="t-growth"></div></section>
     <section class="card"><h3>各險種占比：去年同期 → 今年</h3><p class="cap">占全部人身保險保費收入的比例。</p><div id="c-share"></div></section>
@@ -47,12 +54,16 @@
   <section class="card"><h3>個人年金占全年保費的比重</h3><p class="cap" id="cap-ann"></p><div id="c-ann"></div><div id="t-ann"></div></section>
   <section class="card note" id="inv-ref" hidden></section>
 
+  </div>
+  <div class="pane" data-pane="companies" hidden>
   <h2 class="sec" id="companies" data-ic="building">市占率與公司比較</h2>
   <p class="sec-sub" id="co-src"></p>
+  <ul class="conc compact" id="conc-co"></ul>
   <div id="co-err"></div>
   <div class="grid3" id="co-grid"></div>
   <div id="co-trend"></div>
   <section class="card" id="share"></section>
+  </div>
 </main>
 
 <script src="/common.js"></script>
@@ -229,12 +240,16 @@ function renderKpis(s, d) {
 }
 
 function renderConclusions(s, d, c) {
-  const item = (tag, text, src) => `<li><span class="tag tag-${tag === "供給面" ? "s" : tag === "需求面" ? "d" : tag === "公司比較" ? "c" : "m"}">${tag}</span>
-    <span>${esc(text)}<span class="src">來源：${esc(src)}</span></span></li>`;
-  $("conclusions").innerHTML = (s.conclusions || []).map(c => item("供給面", c, "各公司法定公開商品清單")).join("")
-    + (d.conclusions || []).map(c => item("需求面", c, "保險事業發展中心 人身保險業保費收入")).join("")
-    + (c.conclusions || []).map(x => item("公司比較", x, "保險局 壽險財務業務指標")).join("")
-    + `<li><span class="tag tag-m">市占率</span><span class="muted">還沒有各公司保費金額的資料來源（見最下方）。</span></li>`;
+  const item = (tag, text, src) => `<li title="來源：${esc(src)}"><span class="tag tag-${tag === "供給面" ? "s" : tag === "需求面" ? "d" : tag === "公司比較" ? "c" : "m"}">${tag}</span>
+    <span>${esc(text)}</span></li>`;
+  const S = ["供給面", "各公司法定公開商品清單"], D = ["需求面", "保險事業發展中心 人身保險業保費收入"], C = ["公司比較", "保險局 壽險財務業務指標"];
+  const sc = s.conclusions || [], dc = d.conclusions || [], cc = c.conclusions || [];
+  // 總覽只放最重要的幾句，其餘放在各分頁頂端
+  $("conclusions").innerHTML = [sc[1], sc[2]].filter(Boolean).map(x => item(...[S[0], x, S[1]])).join("")
+    + dc.slice(0, 2).map(x => item(D[0], x, D[1])).join("") + cc.slice(0, 1).map(x => item(C[0], x, C[1])).join("");
+  $("conc-supply").innerHTML = sc.map(x => `<li>${esc(x)}</li>`).join("");
+  $("conc-demand").innerHTML = dc.map(x => `<li>${esc(x)}</li>`).join("");
+  $("conc-co").innerHTML = cc.map(x => `<li>${esc(x)}</li>`).join("");
 }
 
 function renderCompanies(c, selfCo) {
@@ -266,16 +281,10 @@ function renderCompanies(c, selfCo) {
   }
 }
 
-function renderShareGap(hasCompanies) {
-  $("share").innerHTML = `
-    <h3>市占率：還沒有資料來源</h3>
-    <p class="small">目前找到的開放資料都<b>沒有各公司的保費金額</b>，所以算不出市占率：104113 是全市場依險種（已用在需求面）；
-      13517 只有產險／人身保險業全年合計；7191 是各公司的比率指標（上面的公司比較），沒有金額。</p>
-    <p class="small muted">還可以試的來源（都要先確認 robots.txt 與使用條款）：</p>
-    <ul class="small">
-      <li>保險業公開資訊觀測站（ins-info.ib.gov.tw）各公司「各險別之保費收入及保險給付」：每家公司各自揭露，可以拼出市占率</li>
-      <li>壽險公會各公司業績統計：有投資型初年度保費，最貼近「法巴在投資型市場的位置」</li>
-    </ul>`;
+function renderShareGap() {
+  $("share").innerHTML = `<h3>市占率：還沒有資料來源</h3>
+    <p class="cap">開放資料都沒有各公司保費金額（104113 是依險種、13517 是業別合計、7191 只有比率）。可再試：保險業公開資訊觀測站各公司「各險別之保費收入」、壽險公會各公司業績（需先確認 robots.txt 與使用條款）。</p>
+    <p class="muted" style="margin:6px 0 0">開放資料沒有各公司的保費金額，暫時算不出市占率。</p>`;
 }
 
 (async () => {
@@ -287,6 +296,16 @@ function renderShareGap(hasCompanies) {
   renderDemand(d);
   renderCompanies(c, s.self_company);
   renderShareGap();
+  infoize();
+  const show = k => {
+    document.querySelectorAll("#panes button").forEach(b => b.classList.toggle("on", b.dataset.p === k));
+    document.querySelectorAll(".pane").forEach(p => p.hidden = p.dataset.pane !== k);
+    window.dispatchEvent(new Event("resize"));          // 剛顯示的圖表依實際寬度重畫
+    history.replaceState(null, "", "#" + k);
+  };
+  document.querySelectorAll("#panes button").forEach(b => b.onclick = () => show(b.dataset.p));
+  const h = location.hash.slice(1);
+  if (["supply", "demand", "companies"].includes(h)) show(h);
 })();
 </script>
 </body>

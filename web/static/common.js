@@ -130,3 +130,27 @@ function stackedBars(rows, keyField, series, opts = {}) {
 
 const num = (v, d = 0) => v == null ? "—" : Number(v).toLocaleString("zh-TW", { minimumFractionDigits: d, maximumFractionDigits: d });
 const signed = v => v == null ? "—" : (v > 0 ? "+" : "") + v.toFixed(1) + "%";
+
+// ---------------------------------------------------------------- 說明文字收合：.cap／.sec-sub／.ctx-sub 預設隱藏，
+// 在前一個標題旁放一個 ⓘ，點了才展開（讓每頁的字少一點）
+function infoize(root = document) {
+  root.querySelectorAll(".cap, .sec-sub, .ctx-sub").forEach(el => {
+    if (el.dataset.folded || !el.textContent.trim()) return;
+    el.dataset.folded = "1";
+    el.classList.add("folded");
+    let h = el.previousElementSibling;
+    if (!h || !/^(H1|H2|H3|H4)$/.test(h.tagName) && !h.classList.contains("sect-h") && !h.classList.contains("ctx-top")) {
+      h = document.createElement("div");
+      h.className = "info-row";
+      el.before(h);
+    }
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "info-btn";
+    b.title = el.textContent.trim().slice(0, 200);
+    b.setAttribute("aria-label", "說明");
+    b.innerHTML = icon("info");
+    b.onclick = e => { e.preventDefault(); el.classList.toggle("open"); b.classList.toggle("on"); };
+    h.appendChild(b);
+  });
+}

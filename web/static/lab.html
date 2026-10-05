@@ -187,7 +187,7 @@ function renderHead() {
   $("headSub").innerHTML = `<span class="chip">${icon("layers")}${esc(f.line || "險種未定")}</span>
     ${(f.currency || []).length ? `<span class="chip">${icon("coins")}${esc(f.currency.join("、"))}</span>` : ""}
     ${d.base ? `<span class="chip blue">${icon("link")}複製自 ${esc(d.base.split("|")[1] || d.base)}</span>` : ""}
-    <span class="small muted" style="margin-left:6px">最後修改 ${esc(upd)}（UTC）</span>`;
+    `;
 }
 function renderSteps() {
   const ch = S.draft.checks || [];
@@ -244,6 +244,7 @@ function renderForm() {
   if ($("prevM")) $("prevM").onclick = () => go(-1);
   if ($("nextM")) $("nextM").onclick = () => go(1);
   renderChecks();
+  infoize($("form"));
 }
 
 function renderChecks() {
@@ -261,7 +262,7 @@ function renderPins() {
     ? `<ul class="pins">${refs.map((r, i) => `<li><span class="pin-kind">${esc(r.kind_zh || { product: "競品", article: "條文", reg: "法規", law: "法規動態", news: "新聞", market: "市場" }[r.kind] || "")}</span>
         ${r.url ? `<a href="${esc(r.url)}" target="_blank">${esc(r.title)}</a>` : esc(r.title)}${r.note ? `<span class="muted small">　${esc(r.note)}</span>` : ""}
         <button class="ghost tiny" type="button" data-i="${i}" title="移除">×</button></li>`).join("")}</ul>`
-    : '<p class="small muted">在右邊各分頁按「＋ 釘選」，把要引用的競品條文、法規、新聞、市場數據放進規格書。</p>');
+    : '<p class="small muted" style="margin:4px 0">尚未釘選。在右邊按「＋ 釘選」加入。</p>');
   $("pins").querySelectorAll("button[data-i]").forEach(b => b.onclick = () => {
     S.draft.refs[S.module].splice(+b.dataset.i, 1); renderPins(); scheduleSave();
   });
@@ -313,6 +314,7 @@ function renderCtx() {
   pinStore = [];
   ({ comp: ctxComp, law: ctxLaw, news: ctxNews, market: ctxMarket })[S.tab]();
   bindPins();
+  infoize($("ctx"));
 }
 
 function fmtVal(v) {
@@ -326,7 +328,8 @@ function ctxComp() {
   const c = S.ctx.competitors, m = S.modules.find(x => x.id === S.module), mine = S.draft.fields || {};
   if (!c.n) { $("ctx").innerHTML = '<p class="muted">還沒有競品資料（先跑 M3 公司來源與 --parse）。</p>'; return; }
   const scope = c.line ? `同險種（${esc(c.line)}）` : "全部投資型（先在「商品定位」選險種，會只看同險種）";
-  let h = `<p class="ctx-sub">${scope}：${c.n} 個商品，其中${esc(short(S.selfCo))} ${c.self_n} 個。數字是從條款與附表自動擷取，請點原文核對。</p>`;
+  let h = `<div class="ctx-top"><span class="chip">${icon("layers")}${c.line ? esc(c.line) : "全部投資型"}</span><span class="chip">${c.n} 個商品</span><span class="chip blue">${esc(short(S.selfCo))} ${c.self_n}</span></div>
+    <p class="ctx-sub">${scope}。數字是從條款與附表自動擷取，請點原文核對。</p>`;
   const fields = m.fields.filter(fd => fd.feature);
   if (fields.length) {
     h += `<div class="dist-grid">` + fields.map(fd => {
@@ -336,9 +339,8 @@ function ctxComp() {
       if (s && s.kind === "range") {
         const my = mine[fd.id];
         const none = [...new Set(c.products.map(p => p.company))].filter(co => !s.by_company[co]).map(short);
-        body = `<div class="range"><b>${num(s.min, 1)} ～ ${num(s.max, 1)}</b>，中位數 ${num(s.median, 1)}（${s.n} 個商品）
-          ${none.length ? `<div class="small muted">擷取不到：${esc(none.join("、"))}（條款與附表裡擷取不到）</div>` : ""}
-          ${my != null ? `<div class="small">你的設定：<b>${esc(my)}</b>${my > s.max ? " — 高於全部競品" : my < s.min ? " — 低於全部競品" : ""}</div>` : ""}</div>
+        body = `<div class="range" title="${none.length ? `擷取不到：${esc(none.join("、"))}` : ""}"><b>${num(s.min, 1)}～${num(s.max, 1)}</b> <span class="muted">中位數 ${num(s.median, 1)}・${s.n} 個</span>
+          ${my != null && (my > s.max || my < s.min) ? `<div class="small warn">你的設定 ${esc(my)} ${my > s.max ? "高於" : "低於"}全部競品</div>` : ""}</div>
           <div id="dist_${fd.id}"></div>`;
       }
       return `<div class="dist"><h4>${esc(fd.label)}</h4>${body}</div>`;
@@ -392,7 +394,7 @@ function ctxLaw() {
   h += c.law.length ? `<ul class="itemlist">${c.law.map(x => `<li><span class="date">${esc(x.date)}</span>
       <span class="imp imp-${x.impact}">${IMPACT_ZH[x.impact]}</span> <span class="small muted">${esc(SRC_ZH[x.source] || x.source)}</span><br>
       <a href="${esc(x.raw)}" target="_blank">${esc(x.title)}</a> <a class="small" href="${esc(x.url)}" target="_blank">來源</a>
-      <span class="small muted">（關鍵字：${esc(x.hit.join("、"))}）</span> ${pinBtn({ kind: "law", title: x.title, url: x.url, note: x.date })}</li>`).join("")}</ul>`
+      ${pinBtn({ kind: "law", title: x.title, url: x.url, note: x.date })}</li>`).join("")}</ul>`
     : '<p class="small muted">目前資料裡沒有符合這個模組關鍵字的法規動態。</p>';
   $("ctx").innerHTML = h;
 }
@@ -401,7 +403,7 @@ function ctxNews() {
   const c = S.ctx;
   $("ctx").innerHTML = c.news.length ? `<ul class="itemlist">${c.news.map(x => `<li><span class="date">${esc(x.date)}</span>
       <span class="imp imp-${x.impact}">${IMPACT_ZH[x.impact]}</span> ${x.categories.map(k => `<span class="tag">${esc(k)}</span>`).join(" ")}<br>
-      <a href="${esc(x.url)}" target="_blank">${esc(x.title)}</a> <span class="small muted">（關鍵字：${esc(x.hit.join("、"))}）</span>
+      <a href="${esc(x.url)}" target="_blank">${esc(x.title)}</a>
       ${pinBtn({ kind: "news", title: x.title, url: x.url, note: x.date })}</li>`).join("")}</ul>`
     : `<p class="muted">目前沒有符合這個模組關鍵字的新聞。</p><p class="small muted">新聞來源（RSS）要在 Mac 上跑 <code>python -m scheduler.run news_rss -v</code> 再 <code>--parse</code>；
        關鍵字在 config/product_modules.yaml 的 news_keywords。</p>`;
