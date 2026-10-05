@@ -114,3 +114,19 @@ def test_week_groups_and_product_impact(site):
     assert item["product_impact"]["competitor_count"] == 1            # 測試資料只有一個凱基商品（競品）
     d = json.loads(get(base, f"/api/impact?raw_doc_id={item['raw_doc_id']}")[2])
     assert d["product_impact"]["competitors"] == {"凱基人壽": 1} and d["product_impact"]["self_products"] == []
+
+
+def test_market_supply(site):
+    _, base, _ = site
+    s = json.loads(get(base, "/api/market/supply")[2])
+    assert s["as_of"] == "2025-01-01" and [c["company"] for c in s["companies"]] == ["凱基人壽"]
+    c = s["companies"][0]
+    assert (c["on_sale"], c["families"], c["foreign"]) == (1, 1, 1)
+    assert s["revision_waves"][0]["month"] == "2025-01" and s["conclusions"]
+    assert get(base, "/market.html")[0] == 200
+
+
+def test_family_names():
+    from web.market import family_of
+    assert family_of("法商法國巴黎人壽", "法商法國巴黎人壽享富足外幣變額年金保險(乙型)") == "享富足"
+    assert family_of("凱基人壽", "凱基人壽鑫旺九九外幣變額年金保險(112)") == "鑫旺九九"

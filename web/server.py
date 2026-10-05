@@ -6,7 +6,7 @@
 
 瀏覽器開 http://127.0.0.1:8765 。只綁本機位址，不對外開放。
 
-頁面：/（情報牆）、/compare.html（競品比較）。
+頁面：/（情報牆）、/compare.html（競品比較）、/market.html（市場數據）。
 API（全部 GET、回 JSON）：
     /api/meta                     資料庫概況、篩選選項
     /api/week?days=7              本週要注意：最近 N 天的高影響／影響自家商品的項目＋商品動態
@@ -16,6 +16,7 @@ API（全部 GET、回 JSON）：
     /api/products?company=&line=&currency=TWD|FX&q=&status=&has_clause=1
     /api/product?company=&name=   單一商品：統一欄位＋出處＋待補欄位＋版本與改版差異
     /api/articles?raw_doc_id=     條款條文（條號、標題、頁碼、本文）
+    /api/market/supply            市場數據・供給面（各家新核准／修正節奏、險種幣別結構、結論句）
     /<raw_path>（raw/…）          原始檔（條款 PDF 可加 #page=N 直接跳頁）；限定在 raw 目錄內
 """
 from __future__ import annotations
@@ -295,6 +296,14 @@ class Store:
                     }
         return out
 
+    # ------------------------------------------------------------ 市場數據
+    def market_supply(self) -> dict[str, Any]:
+        from web.market import supply
+        with self.conn() as c:
+            if "product_terms" not in self._tables(c):
+                return {"as_of": None, "companies": [], "conclusions": []}
+            return supply(c, self.impact_rules.get("self_company"))
+
     def articles(self, raw_doc_id: int) -> list[dict[str, Any]]:
         with self.conn() as c:
             return [dict(r) for r in c.execute(
@@ -345,6 +354,8 @@ def make_handler(store: Store):
                 if u.path == "/api/impact":
                     d = store.impact_detail(int(q.get("raw_doc_id", "0")))
                     return self._json(d) if d else self._json({"error": "not found"}, 404)
+                if u.path == "/api/market/supply":
+                    return self._json(store.market_supply())
                 if u.path == "/api/products":
                     return self._json(store.products(q))
                 if u.path == "/api/product":

@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>市場數據</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<nav id="nav"></nav>
+<h1>市場數據</h1>
+<p class="small muted">三個問題：供給面（競品出手節奏）、需求面（市場往哪個險種移動）、市占率（法巴在市場的位置）。每個結論都附資料來源。</p>
+
+<h2>結論</h2>
+<ul id="conclusions"><li class="muted">載入中…</li></ul>
+
+<h2>供給面：各家投資型商品的出手節奏</h2>
+<div id="supply"></div>
+
+<h2>需求面：新契約保費依險種的趨勢</h2>
+<div id="demand"></div>
+
+<h2>市占率：各公司保費與排名</h2>
+<div id="share"></div>
+
+<script src="/common.js"></script>
+<script>
+function compareLink(company, name) {
+  return `/compare.html#${new URLSearchParams({ sel: `${company}|${name}` })}`;
+}
+const pct = (a, b) => b ? Math.round(a * 100 / b) + "%" : "—";
+
+async function loadSupply() {
+  const s = await getJSON("/api/market/supply");
+  const box = document.getElementById("supply");
+  if (!s.as_of) { box.innerHTML = '<p class="muted">還沒有商品資料（先跑 M3 的公司來源與 --parse）。</p>'; return []; }
+  const cos = s.companies.map(c => c.company);
+  const rows = s.companies.map(c => `<tr${c.company === s.self_company ? ' style="font-weight:bold"' : ""}>
+      <td class="nowrap">${esc(c.company)}</td>
+      <td>${c.on_sale}（${c.families} 個系列）</td>
+      <td>${pct(c.foreign, c.on_sale)}</td>
+      <td class="small">${esc(Object.entries(c.lines).map(([l, n]) => `${l} ${n}`).join("、"))}</td>
+      <td>${c.new_12m}（${c.new_families_12m} 個系列）</td>
+      <td>${pct(c.new_12m_foreign, c.new_12m)}</td>
+      <td>${c.revised_12m}</td>
+      <td class="nowrap">${esc(c.latest_approval)}</td></tr>`).join("");
+  const waves = s.revision_waves.map(w => `<tr><td class="nowrap">${esc(w.month)}</td><td>${w.count}</td>
+      <td class="small">${esc(Object.entries(w.companies).map(([c, n]) => `${c} ${n}`).join("、"))}</td>
+      <td class="small">${w.top_doc ? `${esc(w.top_doc[0])}（${w.top_doc[1]} 件）` : '<span class="muted">各自修正</span>'}</td></tr>`).join("");
+  const recent = s.recent.map(p => `<tr><td class="nowrap">${esc(p.first_date)}</td><td class="nowrap">${esc(p.company)}</td>
+      <td><a href="${compareLink(p.company, p.name)}">${esc(p.name)}</a></td><td class="nowrap">${esc(p.line || "")}</td>
+      <td class="nowrap">${esc(curLabel(p.currency))}</td></tr>`).join("");
+  box.innerHTML = `
+    <p class="small muted">資料：各公司依《人身保險業辦理資訊公開管理辦法》公開的商品名稱、日期及文號清單（M3），資料截至 ${esc(s.as_of)}。
+      清單只列現行商品，已停售的不在上面，所以越早的季度越低估；「系列」＝同一商品名稱的新臺幣／外幣、年金／萬能等版本合計一個。</p>
+    <h3 class="small">每季新核准商品數（最近 12 季）</h3>
+    ${stackedBars(s.quarters, "quarter", cos)}
+    <h3 class="small">各家概況（粗體為自家；「近 12 個月」＝${esc(s.from_12m)}～${esc(s.as_of)}）</h3>
+    <table><thead><tr><th>公司</th><th>銷售中商品</th><th>外幣占比</th><th>險種</th><th>近12月新核准</th><th>其中外幣</th><th>近12月修正</th><th>最近核准</th></tr></thead>
+      <tbody>${rows}</tbody></table>
+    <h3 class="small">條款修正集中的月份（看是不是主管機關要求的全面修正）</h3>
+    <table><thead><tr><th>月份</th><th>修正件數</th><th>公司</th><th>同一天的金管會文號</th></tr></thead><tbody>${waves}</tbody></table>
+    <h3 class="small">最近 180 天新核准的商品（點名稱到競品比較）</h3>
+    <div class="scroll"><table><thead><tr><th>核准日</th><th>公司</th><th>商品</th><th>險種</th><th>幣別</th></tr></thead><tbody>${recent}</tbody></table></div>`;
+  return s.conclusions.map(c => `<li>${esc(c)}<span class="small muted">（供給面，來源：各公司法定公開商品清單）</span></li>`);
+}
+
+function pending(where, what) {
+  document.getElementById(where).innerHTML = `<p class="muted">${what}</p>`;
+}
+
+(async () => {
+  await renderNav("market");
+  const conc = await loadSupply();
+  pending("demand", "尚未接上資料。來源：壽險公會「壽險業績統計」（政府資料開放平臺 14539，新契約保費依險種，含投資型）。"
+    + "請在 Mac 執行 <code>python -m scheduler.run open_data -v</code> 下載；下載到的檔案格式確認後才接上解析（這一步需要看實際檔案）。");
+  pending("share", "尚未接上資料。來源：金管會保險局「人身保險業保費收入統計表（月報）」（政府資料開放平臺 104113，依公司別）。下載方式同上。");
+  document.getElementById("conclusions").innerHTML = conc.join("")
+    + '<li class="muted">需求面、市占率：待接上開放資料後自動產生結論。</li>';
+})();
+</script>
+</body>
+</html>

@@ -148,6 +148,15 @@ sources:
     product_list_url: https://www.kgilife.com.tw/zh-tw/-/media/files/kgil/footer/corp/publicinfo/piinsurance-products/date_ilp.pdf
     clause_index_url: https://www.kgilife.com.tw/zh-tw/footer/corp/publicinfo/piinsurance-products/202412-insurance-products-clause
 
+  - id: open_data              # 市場數據的需求面與市占率（D28）：政府資料開放平臺的統計資料集
+    tier: A
+    schedule: "20 6 * * 1"       # 月報資料，每週一檢查一次就夠
+    adapter: adapters.open_data:OpenDataAdapter
+    domain: data.gov.tw
+    datasets:
+      - {id: 14539, name: lia_performance, purpose: demand, note: 壽險業績統計（壽險公會）：新契約保費依險種}
+      - {id: 104113, name: ib_premium_monthly, purpose: share, note: 人身保險業保費收入統計表（月報，保險局）：依公司別}
+
   - id: news_rss               # D9／D10／D16
     tier: D
     schedule: "*/45 * * * *"

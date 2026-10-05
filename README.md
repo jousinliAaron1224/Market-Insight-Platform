@@ -9,7 +9,7 @@
 cd insurance-intel
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-pytest -q                                  # 115 個測試，全部離線（M3／M4 用實際下載的官網 PDF，約 75 秒）
+pytest -q                                  # 120 個測試，全部離線（M3／M4 用實際下載的官網 PDF，約 75 秒）
 
 python -m scheduler.run tii_law_rss -v     # 真的抓一輪（約 3 分鐘：50 筆內文，每筆間隔 3 秒）
 python -m scheduler.run --events           # 應該看到 50 筆 new_item
@@ -24,6 +24,7 @@ python -m scheduler.run --all             # 所有來源各跑一輪
 python -m scheduler.run --health          # 各來源最後成功時間、狀態與未解除警示
 python -m scheduler.run --serve           # 常駐排程，依 sources.yaml 的 cron 自動跑（Ctrl+C 結束）
 python -m scheduler.run --products        # 各公司投資型商品數、最近上架／停售
+python -m scheduler.run open_data -v      # 政府開放資料：壽險業績統計、保費收入月報（D28，市場數據用）
 
 python -m scheduler.run --parse -v        # M4 解析層：消化未處理事件（條款結構化、新聞／法規分類）
 python -m scheduler.run --terms           # 統一商品 schema：各公司已解析條款與欄位覆蓋
@@ -44,6 +45,7 @@ python -m web.server --snapshot demo-1005b    # 讀重播後的工作資料庫�
 
 - **情報牆**（`/`）：最上面是「本週要注意」（以資料最新日期往回 7 天，可切 14／30 天）：高影響、或會影響法巴自家商品的法規與新聞，以及期間內的商品上架／停售／改版。下面分「法規動態」（保發中心、金管會新聞稿、裁罰）與「新聞動態」兩個分頁，可依影響程度／類別／來源／日期／標題篩選，可只看影響自家商品的。每筆的「對現有商品的影響」與「細節」列出判定理由、自家受影響商品（依險種統計、點了到競品比較）、各競品受影響數、建議檢視條文（D27）。
 - **競品比較**（`/compare.html`）：篩選商品、勾選最多 4 個並排比較統一欄位，每個欄位附出處（條號、標題、頁碼），點了開原文 PDF 那一頁；「條文對照」依條文標題並排各家原文，可輸入關鍵字（例如「解約費用」）找出含該字的條文。比較結果的網址可以存起來或分享。
+- **市場數據**（`/market.html`）：最上面是可引用的結論句（附來源）。供給面用 M3 的法定公開商品清單算各家每季新核准商品數（SVG 圖）、各家銷售中商品／系列數、外幣與險種結構、近 12 個月新核准與修正、條款修正集中的月份與同一天的金管會文號（辨識主管機關要求的全面修正）、最近 180 天新核准商品。需求面（壽險業績統計）與市占率（保費收入月報）由 `open_data` 下載，解析待看過實際檔案後接上。
 
 ### 交給下游（M4）
 
