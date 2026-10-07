@@ -35,6 +35,7 @@ CO_WORDS = [("法國巴黎人壽", "cardif"), ("法巴人壽", "cardif"), ("台�
             ("第一金人壽", "firstlife"), ("元大人壽", "yuanta"), ("南山人壽", "nanshan")]
 MISSING = {"issue_age": "投保年齡", "exclusions": "除外責任", "riders": "附約", "rate_terms": "利率條款", "payment_modes": "繳費方式"}
 IMP = {"high": 4, "medium": 3, "low": 2}
+INSURANCE_TITLE = re.compile("保險|壽險|人壽|保單|保費|年金|投資型|宣告利率")
 
 
 def pct(x):
@@ -170,6 +171,8 @@ def label_rows(store, pids):
             regs.append(dict(base, topic="法規草案預告", status="草案預告",
                              analysis=f"{extra.get('undertake') or '金管會'}預告，{period}。{text}",
                              design=design, affected=["投資型"] if lines else ["公司層級"]))
+        elif d.get("source_id") == "news_rss" and not INSURANCE_TITLE.search(title):
+            continue   # 新聞 RSS 是以「金管會」等關鍵字收進來的，標題沒提到保險的（例如虛擬資產、銀行）不放進情報
         elif d.get("impact") != "low":   # 情報動態只放中、高影響（低影響多為產險宣導、人事）
             cats = d.get("categories") or []
             if d.get("source_id") == "fsc_penalty" or "裁罰" in title or "法規" in cats:
