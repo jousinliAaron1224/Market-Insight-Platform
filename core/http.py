@@ -6,7 +6,7 @@ import ssl
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 from urllib.parse import urlsplit
 from urllib.robotparser import RobotFileParser
 
@@ -126,21 +126,33 @@ class PoliteClient:
         self._client.close()
 
     def get(self, url: str, *, etag: str | None = None, last_modified: str | None = None,
-            respect_robots: bool = True) -> httpx.Response:
-        """HTTP 層變動偵測：帶 If-None-Match / If-Modified-Since；呼叫端自行判斷 304。"""
-        if respect_robots and not self.allowed(url):
-            raise RobotsDisallowed(url)
-        headers: dict[str, str] = {}
+            respect_robots: bool = True, headers: dict[str, str] | None = None) -> httpx.Response:
+        """HTTP 層變動偵測：帶 If-None-Match / If-Modified-Since；呼叫端自行判斷 304。
+
+        headers：少數網站的 API 要求特定標頭（例如南山的 GET 也要 Content-Type: application/json，否則回 406）。
+        """
+        headers = dict(headers or {})
         if etag:
             headers["If-None-Match"] = etag
         if last_modified:
             headers["If-Modified-Since"] = last_modified
+        return self._request("GET", url, headers, None, None, respect_robots)
+
+    def post(self, url: str, *, data: dict[str, str] | None = None, json: Any = None,
+             respect_robots: bool = True, headers: dict[str, str] | None = None) -> httpx.Response:
+        """網站自己的查詢 API（例如兆豐的保險商品列表）只接受 POST（表單 data 或 JSON）；限速、robots、重試與 GET 相同。"""
+        return self._request("POST", url, dict(headers or {}), data, json, respect_robots)
+
+    def _request(self, method: str, url: str, headers: dict[str, str], data: dict[str, str] | None,
+                 json: Any, respect_robots: bool) -> httpx.Response:
+        if respect_robots and not self.allowed(url):
+            raise RobotsDisallowed(url)
         domain = urlsplit(url).netloc
         attempt = 0
         while True:
             try:
                 with self.limiter.slot(domain):
-                    resp = self._client.get(url, headers=headers)
+                    resp = self._client.request(method, url, headers=headers, data=data, json=json)
                 if resp.status_code in RETRY_STATUS and attempt < self.retry.max:
                     raise _Retryable(f"HTTP {resp.status_code}")
                 if resp.status_code != 304:

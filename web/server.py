@@ -50,12 +50,13 @@ from core.config import load_config, resolve
 STATIC = Path(__file__).with_name("static")
 SOURCE_LABELS = {
     "tii_law_rss": "保發中心法規", "fsc_press": "金管會新聞稿", "fsc_penalty": "金管會裁罰",
+    "fsc_draft": "金管會法規草案預告",
     "news_rss": "新聞", "company_cardif_products": "法巴人壽", "company_cathay_products": "國泰人壽",
     "company_fubon_products": "富邦人壽", "company_taiwanlife_products": "台灣人壽",
     "company_kgi_products": "凱基人壽",
 }
 IMPACT_ORDER = "CASE impact WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END"
-GROUPS = {"law": ["tii_law_rss", "fsc_press", "fsc_penalty"], "news": ["news_rss"]}
+GROUPS = {"law": ["tii_law_rss", "fsc_press", "fsc_penalty", "fsc_draft"], "news": ["news_rss"]}
 PRODUCT_EVENT_TYPES = ("product_launched", "product_discontinued", "doc_revised")
 
 
@@ -165,7 +166,8 @@ class Store:
     def _label_item(self, r, products: list[dict[str, Any]], detail: bool = False) -> dict[str, Any]:
         from parsers.impact import compute_impact, summary_line
         meta = json.loads(r["meta"] or "{}")
-        extra = {k: meta[k] for k in ("unit", "respondent", "fine_twd", "data_type", "feed", "doc_no")
+        extra = {k: meta[k] for k in ("unit", "respondent", "fine_twd", "data_type", "feed", "doc_no",
+                                       "undertake", "comment_days", "comment_end")
                  if meta.get(k) not in (None, "")}
         imp = compute_impact(r["title"], r["source_id"], products, self.impact_rules)
         impact = {"summary": summary_line(imp), "self_count": len(imp["self"]),

@@ -77,6 +77,42 @@ python -m web.server --snapshot demo-1005b    # 讀重播後的工作資料庫�
 - 保發中心「保險商品查詢」資料庫雖然收錄全市場，但查詢有圖形驗證碼，不自動化。
 - 台灣人壽的清單是固定檔案編號（`portal-api/File/10904`），頁面 API 被防火牆擋，無法自動找新版；官網換檔案時要手動更新 `sources.yaml`。
 
+### 法規草案預告、銀行上架、宣告利率（2026-10-05 新增）
+
+```bash
+python -m scheduler.run fsc_draft -v        # 金管會法規草案預告 RSS（1 個請求）
+python -m scheduler.run bank_shelf -v       # 兆豐、華南、永豐的保險商品列表（7 個請求）
+python -m scheduler.run declared_rates -v   # 宣告利率；第一次回補 12 個月約 600 個請求、40 分鐘，之後每月幾十個
+```
+
+- **fsc_draft**（`adapters/fsc_draft.py`）：`/RSS/Noticelaw?serno=201202290010`（同一個 serno 用 `/RSS/Messages` 會回傳空 channel）。最近 20 筆，description 是完整公告；以 category cake=490、字號「金管保」或承辦單位「保險局」判斷 `is_insurance`，非保險局的草案由解析層預設隱藏（同裁罰案）。陳述意見期限從「刊登公報翌日」起算、RSS 沒有刊登日，所以只記 `comment_days`（「三十日內」這類國字也會轉換）；標題有「預告期間：起~迄」時才記 `comment_end`，不自行推算。匯出到雷達網站的法規頁，主題「法規草案預告」。
+- **bank_shelf**（`adapters/bank_shelf.py`、`bank_shelf` 表）：每個銀行列表頁一個 item，正規化成「保險公司＋商品名稱」後以指紋比對（頁面上的快取參數不算改版，D11）。新上架寫 `first_seen`、消失寫 `removed_at`（不刪除）；列表頁第一次抓到只建立基準（`baseline=1`）；解析到 0 筆或少於目前上架數一半時丟錯、不判定下架（同 D20）。下架又重新出現時，內容會跟舊版本相同而被判為未變動，所以 `change_detect` 新增選用的 `after_revert` 掛點讓上架狀態跟著更新。兆豐是商品頁背後的 JSON API（POST），`PoliteClient` 因此新增 `post()`；永豐的項目帶上下架時間、頁面用 JS 隱藏過期項目，這裡照同樣的時間過濾。不收：中國信託（JS 機器人驗證，不繞過）、星展（網頁不列商品名稱）。匯出時最近 30 天的上架／下架（不含基準）變成「通路動態」情報。
+- **declared_rates**（`adapters/declared_rates.py`、`declared_rates` 表）：每家公司一個 item，只收名稱同時含「美元」「利率變動」的商品。國泰（一個 GET 回傳全部歷史，約 7 MB）、保誠（靜態頁）一次就有完整歷史；凱基、台灣人壽、南山按月份／分頁查詢，資料庫還沒有該公司歷史時回補 `backfill_months`，之後只抓 `recent_months`。南山的 API 連 GET 都要帶 `Content-Type: application/json`（否則 406），`PoliteClient.get()` 因此可帶 headers；台灣人壽是 JSON POST。每月 1–5 日跑。不收：安聯（Cloudflare）、友邦（連線逾時）、台新（2026-01 併入新光，新來源待確認）、富邦（HTML 分頁量大，待做）、安達（每張商品一個 PDF，待做）、法巴（官網只公告貨幣帳戶與萬能利率）。
+- **匯出到雷達網站**：`rates` 不挑代表商品（挑「最高的那張」會有選擇偏誤），改給每家公司的分布：最新月份的最低／四分位／中位數／最高、與上個月相比調升／調降的張數、調幅最大的商品，以及 7 個月的中位數趨勢。趨勢只用 7 個月都有公告的商品（固定樣本），避免新舊商品替換造成假的漲跌。
+
+### 自動更新雷達網站（2026-10-07 新增）
+
+雷達網站（`../../paris-hackathon-business-competition`）只顯示這個爬蟲產生的真實資料。一個指令跑完整條流程：
+
+```bash
+python scripts/update_radar.py              # 全部來源爬一輪 → 解析 → 匯出 real-data.js 到網站資料夾（不 push）
+python scripts/update_radar.py --push       # 同上，real-data.js 有變動就 commit 並 push（Vercel 自動重新部署）
+python scripts/update_radar.py --skip-crawl # 只重新解析、匯出（改了匯出規則時用）
+
+sh scripts/schedule_radar.sh install        # macOS launchd：每天 08:00、18:00 自動跑 --push（RADAR_HOURS="7 19" 可改時間）
+sh scripts/schedule_radar.sh run            # 立刻用排程設定跑一次
+sh scripts/schedule_radar.sh status         # 排程狀態＋最近一次結果
+sh scripts/schedule_radar.sh uninstall
+```
+
+- 設定在 `config/sources.yaml` 的 `radar`：`site_dir`（網站資料夾）、`git_branch`（只有網站資料夾目前在這個分支時才 push，預設 `main`；在其他分支時只匯出、不 push）。只 commit `real-data.js`，網站其他未提交的修改不會被帶進去。
+- 單一來源失敗不中斷，照樣用資料庫現有資料匯出；匯出失敗就不 commit，網站維持上一版。結果寫在 `data/logs/last_update.json`，每月一個 log 檔 `data/logs/update_radar-YYYYMM.log`；同時只會有一個程序在跑（檔案鎖）。
+- 專案放在桌面時，macOS 會擋背景程式讀桌面（`Operation not permitted`，看 `data/logs/launchd.err`）：到「系統設定 → 隱私權與安全性 → 完整磁碟取用權限」加入 `status` 印出的 Python 執行檔，或把兩個專案移出桌面。
+- 匯出時自動產生的情報（不靠人工整理）：宣告利率每家公司每月的調升／調降（`N7xx`，最新月份全部持平也發一則）、近 90 天新核准的投資型商品（`N8xx`，同公司同一天合併）、銀行上架／下架（`N9xx`），加上金管會新聞稿／裁罰／草案、新聞 RSS 的規則分類（`N5xx`）。
+- 分紅、房貸壽險、美元利變商品來自銀行上架清單（兩家銀行寫法不同的同一張商品會合併、記下所有上架銀行），美元利變商品用名稱比對帶入官網宣告利率。只有名稱、險種、幣別，費用與保費門檻一律留空，不估計。
+- 外幣保單占比：`fsc_press` 的 `attachment_tables` 命中附件名稱時下載 PDF、用 pdfplumber 解析表格存進 `meta.tables`；每月「外幣保險商品銷售情形」新聞稿出來就會自動更新。
+- 新聞 RSS 加了經濟日報「金融」「產業」（關鍵字過濾）。Google 新聞 RSS 不用：`news.google.com` 的 robots.txt 禁止 `/rss`。RSS 只有最新幾十則，新聞會隨排程逐步累積，不會回補歷史。
+
 ### 排程與可靠性（M2）
 
 - `--serve` 用 APScheduler 依 `sources.yaml` 的 cron（台北時間）排程。同一來源不會重疊執行；排程延誤 10 分鐘內會補跑一次，超過就跳過、等下一個排程時間。

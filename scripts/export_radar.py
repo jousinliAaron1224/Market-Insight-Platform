@@ -3,7 +3,7 @@
     python scripts/export_radar.py --out ../../paris-hackathon-business-competition/real-data.js
 
 輸出一支 real-data.js（window.REAL_DATA = {...}），欄位已轉成雷達網站 data.js 的格式：
-  products  投資型商品（條款規則抽取，不是 AI 估計）
+  products  投資型商品（條款規則抽取，不是 AI 估計）；分紅、房貸壽險、美元利變（銀行上架清單＋宣告利率）
   news      金管會新聞稿、裁罰、新聞（規則判讀，不是 AI 摘要）
   regs      保發中心法規異動與函釋
   market    保費收入（保發中心 104113）、公司指標（保險局 7191）、商品供給（各公司條款）
@@ -124,6 +124,12 @@ def product_rows(store, today: date):
 
 def label_rows(store, pids):
     labels = [x for x in store.labels({"hidden": "all", "limit": "2000"})["items"] if not x.get("hidden")]
+    latest = {}   # 同一則公告改版（doc_revised）會有新舊兩筆分類，只留最新版
+    for x in labels:
+        k = (x.get("source_id"), x.get("url") or x["raw_doc_id"])
+        if k not in latest or x["raw_doc_id"] > latest[k]["raw_doc_id"]:
+            latest[k] = x
+    labels = list(latest.values())
     news, regs = [], []
     for l in sorted(labels, key=lambda x: (x["date"] or "", x["raw_doc_id"]), reverse=True):
         d = store.impact_detail(l["raw_doc_id"]) or l
@@ -156,6 +162,14 @@ def label_rows(store, pids):
             design = [f"檢視條款「{a}」" for a in (pi.get("articles") or [])[:4]] + [r for r in (pi.get("reasons") or [])[:2]]
             regs.append(dict(base, topic=topic, status=extra.get("data_type") or "已發布", analysis=f"{reason}。{text}" if reason else text,
                              design=design or ["請法遵與商品開發人工判讀是否需調整商品"], affected=["投資型"] if lines else ["公司層級"]))
+        elif d.get("source_id") == "fsc_draft":   # 法規草案預告：還沒定案，商品設計可以先準備
+            period = (f"陳述意見至 {extra['comment_end']}" if extra.get("comment_end")
+                      else f"刊登公報翌日起 {extra['comment_days']} 日內陳述意見" if extra.get("comment_days") else "陳述意見期限見原文")
+            design = ["草案尚未定案：先評估對商品設計與送審時程的影響，必要時於預告期間陳述意見"]
+            design += [f"檢視條款「{a}」" for a in (pi.get("articles") or [])[:3]]
+            regs.append(dict(base, topic="法規草案預告", status="草案預告",
+                             analysis=f"{extra.get('undertake') or '金管會'}預告，{period}。{text}",
+                             design=design, affected=["投資型"] if lines else ["公司層級"]))
         elif d.get("impact") != "low":   # 情報動態只放中、高影響（低影響多為產險宣導、人事）
             cats = d.get("categories") or []
             if d.get("source_id") == "fsc_penalty" or "裁罰" in title or "法規" in cats:
@@ -197,11 +211,320 @@ def market(store, pids):
     return {"supply": supply, "demand": demand, "companies": comp}
 
 
+RATE_MONTHS = 7   # 雷達網站的利率圖與快報固定讀 7 個月（v[6] 是最新月、v[5] 是上個月）
+
+
+def _month_add(m: str, k: int) -> str:
+    y, mo = map(int, m.split("-"))
+    n = y * 12 + (mo - 1) + k
+    return f"{n // 12}-{n % 12 + 1:02d}"
+
+
+def _q(xs: list[float], q: float) -> float:
+    """分位數（線性內插）；xs 已排序。"""
+    if len(xs) == 1:
+        return xs[0]
+    k = (len(xs) - 1) * q
+    lo = int(k)
+    return round(xs[lo] + (xs[min(lo + 1, len(xs) - 1)] - xs[lo]) * (k - lo), 4)
+
+
+def rates(store, cfg):
+    """宣告利率（declared_rates）→ 雷達網站的利率頁：看各公司的「分布」，不挑代表商品。
+
+    - dist：最新月份每家公司的分布（最低、四分位、中位數、最高、張數）
+    - moves：最新月份與上個月相比，同一張商品調升／調降／不變的張數（宣告利率很少動，「有沒有調」本身就是訊號）
+    - movers：最新月份調整幅度最大的商品
+    - series：每家公司 7 個月的中位數趨勢；只用 7 個月都有公告的商品（固定樣本），避免新舊商品替換造成假的漲跌
+    """
+    src = next((s for s in cfg.get("sources", []) if s["id"] == "declared_rates"), {})
+    names = {c["id"]: c["name"] for c in src.get("companies", [])}
+    pages = {c["id"]: c["page_url"] for c in src.get("companies", [])}
+    c = sqlite3.connect(f"file:{store.db_path}?mode=ro", uri=True)
+    c.row_factory = sqlite3.Row
+    try:
+        rows = [dict(r) for r in c.execute("SELECT * FROM declared_rates")]
+    except sqlite3.OperationalError:
+        rows = []
+    finally:
+        c.close()
+    if not rows:
+        return None
+    latest = max(r["month"] for r in rows)
+    prev = _month_add(latest, -1)
+    months = [_month_add(latest, k) for k in range(-(RATE_MONTHS - 1), 1)]
+    by = {}
+    for r in sorted(rows, key=lambda r: r["month"]):   # 名稱以最新月份為準（凱基的歷史 API 會回傳併購前的「中國人壽…」舊名）
+        p = by.setdefault((r["company"], r["product_code"]), {"v": {}})
+        p["name"] = r["product_name"]
+        p["v"][r["month"]] = r["rate_pct"]
+    dist, moves, movers, series, companies = [], {}, [], [], []
+    for co in dict.fromkeys(r["company"] for r in rows):
+        prods = [p for (cc, _), p in by.items() if cc == co]
+        now = sorted(p["v"][latest] for p in prods if latest in p["v"])
+        if now:
+            dist.append({"co": co, "name": names.get(co, co), "n": len(now), "min": now[0], "p25": _q(now, .25),
+                         "med": _q(now, .5), "p75": _q(now, .75), "max": now[-1]})
+        up = down = same = 0
+        for p in prods:
+            if latest in p["v"] and prev in p["v"]:
+                d = round(p["v"][latest] - p["v"][prev], 4)
+                up, down, same = up + (d > 0), down + (d < 0), same + (d == 0)
+                if d:
+                    movers.append({"co": co, "name": p["name"].replace(names.get(co, ""), "", 1) or p["name"],
+                                   "from": p["v"][prev], "to": p["v"][latest]})
+        moves[co] = {"up": up, "down": down, "same": same}
+        panel = [p for p in prods if all(m in p["v"] for m in months)]
+        if panel:
+            series.append({"co": co, "label": f"{names.get(co, co)}（中位數，{len(panel)} 張）", "n": len(panel),
+                           "v": [_q(sorted(p["v"][m] for p in panel), .5) for m in months]})
+        companies.append({"co": co, "name": names.get(co, co), "products": len(prods), "source": pages.get(co)})
+    # 近 7 個月每月調升／調降張數（同一張商品與前一個月比），以及最近一次有調整的月份與明細
+    hist = []
+    for m in months[1:]:
+        pm = _month_add(m, -1)
+        row = {"m": m, "up": 0, "down": 0, "by": {}}
+        for (co, _), p in by.items():
+            if m in p["v"] and pm in p["v"] and p["v"][m] != p["v"][pm]:
+                k = "up" if p["v"][m] > p["v"][pm] else "down"
+                row[k] += 1
+                b = row["by"].setdefault(co, {"up": 0, "down": 0, "steps": {}})
+                b[k] += 1
+                step = f"{p['v'][m] - p['v'][pm]:+.2f}"   # 調幅分布，例如 {"+0.05": 150}
+                b["steps"][step] = b["steps"].get(step, 0) + 1
+        hist.append(row)
+    last_change = next((h["m"] for h in reversed(hist) if h["up"] or h["down"]), None)
+    if last_change and last_change != latest:
+        lm, pm = last_change, _month_add(last_change, -1)
+        movers = [{"co": co, "name": p["name"].replace(names.get(co, ""), "", 1) or p["name"], "from": p["v"][pm], "to": p["v"][lm]}
+                  for (co, _), p in by.items() if lm in p["v"] and pm in p["v"] and p["v"][lm] != p["v"][pm]]
+    movers.sort(key=lambda m: -abs(m["to"] - m["from"]))
+    allnow = sorted(p["v"][latest] for p in by.values() if latest in p["v"])
+    return {"months": months, "latest": latest, "prev": prev, "market": {"n": len(allnow), "med": _q(allnow, .5)},
+            "dist": dist, "moves": moves, "history": hist, "last_change": last_change, "movers": movers[:8],
+            "series": series, "companies": companies}
+
+
+SHELF_LINE = {"investment": "inv", "participating": "par", "mortgage_term": "mort", "usd_interest": "usd", "annuity": "usd"}
+
+
+def shelf(store, cfg, today: date):
+    """銀行通路上架（bank_shelf）：各銀行目前上架的商品，以及最近 30 天的上架／下架（不含首次建立的基準）。"""
+    banks = {b["id"]: b["name"] for s in cfg.get("sources", []) if s["id"] == "bank_shelf" for b in s.get("banks", [])}
+    c = sqlite3.connect(f"file:{store.db_path}?mode=ro", uri=True)
+    c.row_factory = sqlite3.Row
+    try:
+        rows = [dict(r) for r in c.execute("SELECT * FROM bank_shelf ORDER BY bank_id, insurer, product")]
+    except sqlite3.OperationalError:   # 舊資料庫還沒有這張表
+        rows = []
+    finally:
+        c.close()
+    local = lambda ts: datetime.fromisoformat(ts).astimezone(timezone(timedelta(hours=8))).date().isoformat() if ts else None  # noqa: E731
+    out, changes = [], []
+    since = (today - timedelta(days=30)).isoformat()
+    for bid in dict.fromkeys(r["bank_id"] for r in rows):
+        items = []
+        for r in (x for x in rows if x["bank_id"] == bid):
+            co = (mentioned(r["insurer"]) or [None])[0]
+            it = {"co": co, "insurer": r["insurer"], "product": r["product"], "line": SHELF_LINE.get(r["line"]),
+                  "category": r["category"] or None, "currency": r["currency"] or None,
+                  "first_seen": local(r["first_seen"]), "removed": local(r["removed_at"]), "baseline": bool(r["baseline"])}
+            items.append(it)
+            if not it["baseline"] and it["first_seen"] >= since and not it["removed"]:
+                changes.append(dict(it, bank=bid, kind="上架", d=it["first_seen"]))
+            if it["removed"] and it["removed"] >= since:
+                changes.append(dict(it, bank=bid, kind="下架", d=it["removed"]))
+        live = [i for i in items if not i["removed"]]
+        by_co = {}
+        for i in live:
+            by_co[i["co"] or i["insurer"]] = by_co.get(i["co"] or i["insurer"], 0) + 1
+        out.append({"id": bid, "name": banks.get(bid, bid), "count": len(live), "by_company": by_co, "items": items})
+    return {"as_of": today.isoformat(), "banks": out}, changes
+
+
+SHELF_CO = {"新光人壽": "skl", "全球人壽": "transglobe", "合作金庫人壽": "tcblife", "遠雄人壽": "farglory"}   # 雷達網站原本沒有的公司
+
+
+def _norm(name: str, insurer: str = "") -> str:
+    """商品名稱比對用：去掉公司名、括號、破折號與空白（銀行與公司官網的寫法常常只差全形／半形）。"""
+    s = name.replace(insurer, "", 1) if insurer else name
+    s = re.sub(r"^(法國巴黎|國泰|富邦|凱基|中國|台灣|南山|保誠|安達|友邦|新光|全球|遠雄|第一金|合作金庫|安聯|元大)人壽(保險)?", "", s)
+    return re.sub(r"[\s()（）\[\]【】\-－–—_．.・]", "", s)
+
+
+def shelf_products(store, cfg, shelf_data, start: int = 600):
+    """銀行上架清單 → 分紅、房貸壽險、美元利變／年金商品（取代雷達網站的示範商品）。
+
+    銀行清單只有公司、商品名稱、險種與幣別；費用、保費門檻、年齡等規格要看條款，這裡一律留「—」，不估計。
+    美元利變／年金商品如果在宣告利率資料裡找得到同名商品，就帶入最新月份的宣告利率。
+    """
+    banks = {b["id"]: b["name"] for b in shelf_data["banks"]}
+    rate_src = {c["id"]: c["page_url"] for s in cfg.get("sources", []) if s["id"] == "declared_rates" for c in s.get("companies", [])}
+    c = sqlite3.connect(f"file:{store.db_path}?mode=ro", uri=True)
+    try:
+        dr = c.execute("SELECT company, product_name, month, rate_pct FROM declared_rates ORDER BY month").fetchall()
+    except sqlite3.OperationalError:
+        dr = []
+    finally:
+        c.close()
+    latest = {}   # (公司, 正規化名稱) → (月份, 利率)；同名多張時以最新月份為準
+    for co, name, m, v in dr:
+        latest[(co, _norm(name))] = (m, v)
+    by = {}
+    for b in shelf_data["banks"]:
+        for it in b["items"]:
+            if it["removed"] or it["line"] not in ("par", "mort", "usd"):
+                continue
+            co = it["co"] or SHELF_CO.get(it["insurer"])
+            if not co:
+                continue
+            p = by.setdefault((co, _norm(it["product"], it["insurer"])),
+                              {"co": co, "insurer": it["insurer"], "name": it["product"], "line": it["line"], "cur": set(), "banks": [], "cat": set()})
+            if b["id"] not in p["banks"]:
+                p["banks"].append(b["id"])
+            cur = it["currency"] or ""
+            p["cur"].add("USD" if re.search("美元|美金", cur) else "TWD" if re.search("臺幣|台幣", cur) else "")
+            if it["category"]:
+                p["cat"].add(it["category"])
+    order = ["cardif", "allianz", "cathay", "fubon", "kgi", "taiwanlife", "nanshan"]
+    rows = []
+    for i, p in enumerate(sorted(by.values(), key=lambda p: (order.index(p["co"]) if p["co"] in order else 9, p["co"], p["line"], p["name"]))):
+        cur = next((x for x in p["cur"] if x), "") or ("USD" if re.search("美元|外幣", p["name"]) else "TWD")
+        bank_names = [banks.get(x, x) for x in p["banks"]]
+        rate = latest.get((p["co"], _norm(p["name"], p["insurer"])))
+        pros = [f"{len(bank_names)} 家銀行上架（{'、'.join(bank_names)}）"]
+        if rate:
+            pros.append(f"{rate[0]} 宣告利率 {rate[1]}%")
+        if "高資產" in p["name"]:
+            pros.append("高資產客戶限定")
+        rows.append({
+            "id": f"P{start + i}", "co": p["co"], "name": p["name"], "short": p["name"], "line": p["line"], "sub": "、".join(sorted(p["cat"])) or None,
+            "cur": cur, "launch": "—", "status": "銷售中", "channel": ["銀行"], "banks": bank_names,
+            "min": "—", "minTwd": None, "age": "—", "pay": "—", "term": "終身" if "終身" in p["name"] else "—", "coverage": "—",
+            "fees": {"front": "—", "admin": "—", "surrender": "—"}, "premCharge": None, "surrMax": None, "feeIdx": None, "guarantee": None,
+            "declared": rate[1] if rate else None, "declaredMonth": rate[0] if rate else None, "rateSrc": rate_src.get(p["co"]) if rate else None,
+            "predetermined": None, "riders": "—", "funds": None, "dividend": "—", "segment": "高資產客戶" if "高資產" in p["name"] else "—",
+            "pros": pros, "cons": ["銀行上架清單只有商品名稱與險種，費用、保費門檻、投保年齡請看條款"],
+            "conf": {}, "reviewed": True, "real": True, "auto": False, "shelf": True, "src": None, "versions": [], "missing": [],
+        })
+    return rows
+
+
+def shelf_news(changes, banks):
+    """上架／下架 → 情報動態（通路動態）。重要度：法巴自家或主力險種 4，其他 3。"""
+    names = {b["id"]: b["name"] for b in banks}
+    news = []
+    for ch in sorted(changes, key=lambda x: x["d"], reverse=True):
+        who = ch["insurer"]
+        main = ch["co"] == "cardif" or ch["line"] in ("inv", "par", "mort", "usd")
+        t = f"{names.get(ch['bank'], ch['bank'])}{ch['kind']}{who}「{ch['product']}」"
+        text = ("法巴商品在此銀行的上架狀態有變，請通路確認" if ch["co"] == "cardif"
+                else f"競品在法巴的銀行通路{'新增' if ch['kind'] == '上架' else '減少'}商品，請通路評估櫃位與話術")
+        news.append({"d": ch["d"], "t": t, "src": "銀行官網上架清單", "real": True, "auto": True, "url": None,
+                     "lines": [ch["line"]] if ch["line"] else [], "imp": 4 if main else 3,
+                     "why": f"銀行上架清單比對：{ch['kind']}", "prods": [], "prodCount": 0, "srcId": "bank_shelf",
+                     "cat": "通路動態", "co": [ch["co"]] if ch["co"] else [], "ch": "銀行", "cur": ch["currency"] or "—", "seg": "—",
+                     "ev": None, "en": None, "sum": [f"來源：{names.get(ch['bank'], ch['bank'])}官網保險商品列表（每日比對）",
+                                                     f"銀行分類：{ch['category'] or '—'}"],
+                     "impact": {"lines": [ch["line"]] if ch["line"] else [], "dir": "neu", "text": text}})
+    return news
+
+
+def _news(d, t, src, cat, co, lines, imp, why, sums, text, src_id, url=None, cur="—", ch="—"):
+    return {"d": d, "t": t, "src": src, "real": True, "auto": True, "url": url, "lines": lines, "imp": imp, "why": why,
+            "prods": [], "prodCount": 0, "srcId": src_id, "cat": cat, "co": co, "ch": ch, "cur": cur, "seg": "—",
+            "ev": None, "en": None, "sum": sums, "impact": {"lines": lines, "dir": "neu", "text": text}}
+
+
+def rate_news(r):
+    """宣告利率（declared_rates）→ 情報：每家公司每個月有調整就一則；最新月份全部持平也發一則（「沒調」本身就是訊號）。"""
+    if not r:
+        return []
+    names = {c["co"]: c["name"] for c in r["companies"]}
+    pages = {c["co"]: c["source"] for c in r["companies"]}
+    out = []
+    for h in r["history"]:
+        mo = int(h["m"][5:])
+        for co, b in h["by"].items():
+            steps = "、".join(f"{k} 個百分點 {v} 張" for k, v in sorted(b["steps"].items(), key=lambda x: -x[1])[:3])
+            act = "、".join(x for x in (f"調升 {b['up']} 張" if b["up"] else "", f"調降 {b['down']} 張" if b["down"] else "") if x)
+            down = b["down"] > b["up"]
+            out.append(_news(
+                f"{h['m']}-01", f"{names.get(co, co)} {mo} 月美元利變商品宣告利率{act}", f"{names.get(co, co)}官網宣告利率", "宣告利率",
+                [co], ["usd"], 4 if b["up"] + b["down"] >= 10 else 3,
+                f"宣告利率{'下調' if down else '上調'}會改變銀行理專比較美元利變商品時的排序",
+                [f"來源：{names.get(co, co)}官網每月宣告利率公告（每月比對同一張商品）", f"調整幅度：{steps}"],
+                f"{names.get(co, co)}{'調降' if down else '調升'}宣告利率；法巴官網未公告美元利變宣告利率，請精算與商品開發評估是否需要對應。",
+                "declared_rates", pages.get(co), "USD", "全通路"))
+    if r["latest"] != r["last_change"]:
+        mo = int(r["latest"][5:])
+        n = sum(sum(v.values()) for v in r["moves"].values())
+        out.append(_news(
+            f"{r['latest']}-01", f"{mo} 月美元利變宣告利率：{len(r['moves'])} 家公司 {n} 張商品全數持平", "各公司官網宣告利率", "宣告利率",
+            list(r["moves"]), ["usd"], 3, "宣告利率連續持平，代表利率競賽暫歇",
+            [f"來源：{'、'.join(names.values())}官網每月宣告利率公告", f"市場中位數 {r['market']['med']}%（{r['market']['n']} 張）",
+             f"最近一次有調整的月份：{r['last_change'] or '近 7 個月沒有'}"],
+            "各家利率持平，競爭焦點會轉到保費門檻、通路與附加服務。", "declared_rates", None, "USD", "全通路"))
+    return out
+
+
+def product_news(products, today: date, days: int = 90):
+    """條款資料的新核准商品 → 情報：同一家公司同一天核准的合併成一則。"""
+    since = (today - timedelta(days=days)).isoformat()
+    groups = {}
+    for p in products:
+        first = (p.get("versions") or [{}])[0].get("d")
+        if p.get("status") == "停售" or not first or first < since:
+            continue
+        groups.setdefault((p["co"], first), []).append(p)
+    names = {v: k for k, v in CO.items()}
+    out = []
+    for (co, d), ps in sorted(groups.items(), key=lambda x: x[0][1], reverse=True):
+        who = "法巴人壽" if co == "cardif" else names.get(co, co)
+        subs = sorted({p.get("sub") or "投資型" for p in ps})
+        n = _news(d, f"{who}新核准 {len(ps)} 張投資型商品：{'、'.join(p['short'] for p in ps[:3])}{'等' if len(ps) > 3 else ''}",
+                  f"{who}官網法定公開商品清單", "公司策略" if co == "cardif" else "競品新商品", [co], ["inv"], 3 if co == "cardif" else 4,
+                  "自家新商品上架" if co == "cardif" else "競品投資型新商品，可能和法巴爭取同一批銀行客戶",
+                  [f"來源：{who}官網商品條款與核准文號", f"險種：{'、'.join(subs)}", "商品：" + "、".join(p["short"] for p in ps[:6])],
+                  "請到商品資料庫看條款特色（前置費用、解約費用、撥回機制），和法巴同險種商品比較。", f"company_{co}_products",
+                  ps[0].get("src"))
+        n["prods"], n["prodCount"] = [p["id"] for p in ps[:12]], len(ps)
+        out.append(n)
+    return out
+
+
+def fx_share(store):
+    """外幣保單占新契約保費比率：金管會每月「外幣保險商品銷售情形」新聞稿的附件表格（fsc_press 的 attachment_tables）。"""
+    c = sqlite3.connect(f"file:{store.db_path}?mode=ro", uri=True)
+    try:
+        row = c.execute("""SELECT url, meta FROM raw_docs WHERE source_id='fsc_press' AND meta LIKE '%占整體新契約保費收入比率%'
+                           AND json_extract(meta, '$.tables') IS NOT NULL ORDER BY json_extract(meta, '$.published_at') DESC, id DESC LIMIT 1""").fetchone()
+    finally:
+        c.close()
+    if not row:
+        return None
+    m = json.loads(row[1])
+    t = next(t for t in m["tables"] if "比率" in t["name"])
+    grid = t["tables"][0]
+    head = next(r for r in grid if r[0].startswith("年"))
+    vals = next(r for r in grid if r[0].startswith("占比"))
+    pts = []
+    for h, v in zip(head[1:], vals[1:]):
+        mm = re.match(r"(\d{2,3})/(\d{1,2})", h)
+        if mm and v.rstrip("%"):
+            y, mo = int(mm.group(1)) + 1911, int(mm.group(2))
+            pts.append({"p": f"{y}" if mo == 12 else f"{y} 年 1–{mo} 月", "y": y, "fx": float(v.rstrip("%"))})
+    return {"title": t["name"], "press": m.get("title"), "date": (m.get("published_at") or "")[:10], "url": row[0],
+            "pdf": t["url"], "points": pts}
+
+
 def sources(store):
     meta = store.meta()
     names = dict(meta.get("source_labels") or {})
-    names.update({"open_data": "政府資料開放平臺（104113 保費收入、7191 公司指標、14539 壽險業績）"})
-    kind = lambda s: "公司網站（商品條款）" if s.startswith("company_") else {"news_rss": "新聞 RSS", "open_data": "開放資料 API"}.get(s, "官方網站")  # noqa: E731
+    names.update({"open_data": "政府資料開放平臺（104113 保費收入、7191 公司指標、14539 壽險業績）",
+                  "bank_shelf": "銀行官網保險商品列表（兆豐、華南、永豐）",
+                  "declared_rates": "各公司官網宣告利率（國泰、保誠、凱基、台灣人壽、南山）"})
+    kind = lambda s: "公司網站（商品條款）" if s.startswith("company_") else {"news_rss": "新聞 RSS", "open_data": "開放資料 API", "bank_shelf": "銀行官網", "declared_rates": "公司網站（宣告利率）"}.get(s, "官方網站")  # noqa: E731
     c = sqlite3.connect(f"file:{store.db_path}?mode=ro", uri=True)
     out = []
     for sid, n, last in c.execute("SELECT source_id, COUNT(*), MAX(fetched_at) FROM raw_docs GROUP BY source_id ORDER BY source_id"):
@@ -216,14 +539,33 @@ def main(argv=None) -> int:
     ap.add_argument("--out", required=True, help="real-data.js 的輸出路徑")
     ap.add_argument("--db")
     a = ap.parse_args(argv)
-    store = build_store(load_config(), a.db)
+    cfg = load_config()
+    store = build_store(cfg, a.db)
     links = raw_url_map(store.db_path)
     now = datetime.now(timezone(timedelta(hours=8)))
     products, pids = product_rows(store, now.date())
     news, regs = label_rows(store, pids)
+    shelf_data, shelf_changes = shelf(store, cfg, now.date())
+    sn = shelf_news(shelf_changes, shelf_data["banks"])
+    for i, n in enumerate(sn):
+        n["id"] = f"N{900 + i}"
+    rate_data = rates(store, cfg)
+    rn = rate_news(rate_data)
+    for i, n in enumerate(rn):
+        n["id"] = f"N{700 + i}"
+    pn = product_news(products, now.date())
+    for i, n in enumerate(pn):
+        n["id"] = f"N{800 + i}"
+    news = sorted(news + sn + rn + pn, key=lambda n: n["d"] or "", reverse=True)
+    products += shelf_products(store, cfg, shelf_data)
+    mk = market(store, pids)
+    mk["fx_share"] = fx_share(store)
     data = {"meta": {"snapshot_at": now.strftime("%Y-%m-%d %H:%M"), "today": now.date().isoformat(), "self_company": store.self_company,
-                     "counts": {"products": len(products), "news": len(news), "regs": len(regs)}},
-            "products": products, "news": news, "regs": regs, "market": market(store, pids), "sources": sources(store)}
+                     "counts": {"products": len(products), "news": len(news), "regs": len(regs),
+                                "shelf": sum(b["count"] for b in shelf_data["banks"])}},
+            "products": products, "news": news, "regs": regs, "market": mk, "shelf": shelf_data,
+            "rates": rate_data,
+            "sources": sources(store)}
     body = json.dumps(relink(data, links), ensure_ascii=False, separators=(",", ":"))
     out = resolve(a.out)
     tmp = out.with_name(out.name + ".tmp")   # 先寫暫存檔再換名，避免寫到一半的檔案被網站讀到

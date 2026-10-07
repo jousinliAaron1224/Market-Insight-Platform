@@ -13,3 +13,4 @@ data/site/
 data/site_export.tgz
 .DS_Store
 .Rhistory
+data/logs/

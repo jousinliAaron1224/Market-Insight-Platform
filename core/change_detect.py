@@ -131,9 +131,12 @@ def _process(adapter: SourceAdapter, db: Database, ref: ItemRef, stats: RunStats
         db.touch_seen(ref.source_id, ref.item_key, now, fp)
         db.conn.commit()
         return
-    if latest is not None and db.find_by_hash(doc.source_id, doc.item_key, doc.content_hash):
+    if latest is not None and (old := db.find_by_hash(doc.source_id, doc.item_key, doc.content_hash)):
         # 內容改回某個舊版本（A→B→A）。唯一鍵不允許重複存同一 hash，記為未變動並留 log。
         log.info("content reverted to older version: %s", doc.item_key)
+        revert = getattr(adapter, "after_revert", None)  # 例如銀行上架：下架的商品又回到列表上
+        if revert:
+            revert(db, doc, int(old["id"]))
         stats.unchanged += 1
         db.touch_seen(ref.source_id, ref.item_key, now, fp)
         db.conn.commit()

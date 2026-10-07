@@ -25,7 +25,7 @@ from parsers.base import ParseContext
 
 CLASSIFIER = "rules-v1"
 REG_DATA_TYPES = {"法律命令", "行政規則", "行政函釋"}
-DEFAULT_SOURCES = ["tii_law_rss", "fsc_press", "fsc_penalty", "news_rss"]
+DEFAULT_SOURCES = ["tii_law_rss", "fsc_press", "fsc_penalty", "fsc_draft", "news_rss"]
 BODY_CHARS = 4000
 
 
@@ -41,7 +41,7 @@ def document_text(ctx: ParseContext, doc, meta: dict[str, Any]) -> str:
         if src == "fsc_press" and dtype == "html":
             from adapters.fsc_press import parse_detail
             return parse_detail(ctx.raw.read(doc["raw_path"]), doc["url"]).get("body_text", "")
-        if src == "fsc_penalty":
+        if src in ("fsc_penalty", "fsc_draft"):
             return html_to_text(json.loads(ctx.raw.read(doc["raw_path"])).get("description", ""))
         if src == "news_rss":
             return ctx.db.get_lead(src, doc["item_key"]) or ""   # 導言暫存表（30 天）
@@ -77,6 +77,9 @@ def classify(title: str, body: str, meta: dict[str, Any], source_id: str, rules:
     if source_id == "fsc_penalty" and "法規" not in cats:
         cats.append("法規")
         reasons.append("法規: 金管會裁罰案")
+    if source_id == "fsc_draft" and "法規" not in cats:
+        cats.append("法規")
+        reasons.append("法規: 金管會法規草案預告")
     order = list((rules.get("categories") or {}).keys())
     cats.sort(key=lambda c: order.index(c) if c in order else 99)
 
@@ -94,6 +97,9 @@ def classify(title: str, body: str, meta: dict[str, Any], source_id: str, rules:
     elif source_id == "fsc_penalty" and not meta.get("is_insurance"):
         impact, hidden = "low", True
         reasons.append("low: 非保險業裁罰")
+    elif source_id == "fsc_draft" and not meta.get("is_insurance"):
+        impact, hidden = "low", True
+        reasons.append(f"low: 非保險局草案（{meta.get('undertake') or '承辦單位未載'}）")
     elif hits := any_in("self_names", title + body):
         impact = "high"
         reasons.append("high: 提到自家（" + "、".join(hits) + "）")

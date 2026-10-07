@@ -10,7 +10,7 @@ def test_jobs_built_from_sources_yaml():
     cfg = load_config()
     sched = runner.build_scheduler(cfg)
     jobs = {j.id: j for j in sched.get_jobs()}
-    assert set(jobs) == {"tii_law_rss", "fsc_press", "fsc_penalty", "news_rss",
+    assert set(jobs) == {"tii_law_rss", "fsc_press", "fsc_penalty", "fsc_draft", "news_rss", "bank_shelf", "declared_rates",
                          "company_cardif_products", "company_cathay_products", "company_fubon_products",
                          "company_taiwanlife_products", "company_kgi_products", "open_data", "parse_events"}
     for j in jobs.values():

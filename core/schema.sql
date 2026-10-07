@@ -190,3 +190,39 @@ CREATE TABLE IF NOT EXISTS doc_labels (
     labeled_at    TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_doc_labels_impact ON doc_labels (impact, published_at DESC);
+
+-- ======================= 銀行通路上架（bank_shelf，2026-10-05 新增） =======================
+-- 每家銀行每個列表頁（item_key）抓到的商品；可由 raw 重建。
+-- 下架不刪除：removed_at 記「最近一次在列表上消失」的時間，重新出現時清空。
+-- baseline = 1 表示該列表頁第一次抓到就已存在（不是新上架，只是建立基準，同 D20）。
+CREATE TABLE IF NOT EXISTS bank_shelf (
+    bank_id        TEXT NOT NULL,
+    item_key       TEXT NOT NULL,          -- 哪一個列表頁（例 b_hncb:life_insurance）
+    insurer        TEXT NOT NULL,          -- 正規化後的保險公司名稱
+    product        TEXT NOT NULL,          -- 銀行列出的商品名稱（不含保險公司前綴）
+    line           TEXT,                   -- investment|participating|mortgage_term|usd_interest|annuity|health|other
+    category       TEXT,                   -- 銀行自己的分類（例 美元利變還本、投資型保險）
+    currency       TEXT,
+    first_seen     TEXT NOT NULL,
+    removed_at     TEXT,
+    baseline       INTEGER NOT NULL DEFAULT 0,
+    raw_doc_id     INTEGER REFERENCES raw_docs(id),   -- 最近一次出現的列表版本
+    PRIMARY KEY (bank_id, item_key, insurer, product)
+);
+
+-- ======================= 宣告利率（declared_rates，2026-10-05 新增） =======================
+-- 各公司官網公告的利率變動型商品每月宣告利率；欄位對應雷達後端的 declared_rates(product_id, month, rate_pct, currency, source_url)。
+-- 可由 raw 重建。只收名稱符合 name_filter（預設：美元＋利率變動）的商品。
+CREATE TABLE IF NOT EXISTS declared_rates (
+    company       TEXT NOT NULL,           -- 雷達公司代碼（cathay、kgi…）
+    product_code  TEXT NOT NULL,           -- 公司自己的險種代碼；沒有代碼時用商品名稱
+    product_name  TEXT NOT NULL,
+    month         TEXT NOT NULL,           -- YYYY-MM（宣告月份，西元）
+    rate_pct      REAL NOT NULL,           -- 2.75 代表 2.75%
+    currency      TEXT,
+    line          TEXT,                    -- usd_interest | annuity
+    source_url    TEXT NOT NULL,
+    raw_doc_id    INTEGER REFERENCES raw_docs(id),
+    PRIMARY KEY (company, product_code, month)
+);
+CREATE INDEX IF NOT EXISTS ix_declared_rates_month ON declared_rates (month, company);

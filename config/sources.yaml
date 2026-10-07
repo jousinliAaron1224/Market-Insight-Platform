@@ -17,7 +17,7 @@ parsing:
   llm: none                    # 之後接 LLM：填 module:Class（parsers.base.Enricher 的子類別）
   max_attempts: 3              # 同一事件解析失敗 3 次 → 標 failed 並發警示
   batch: 200
-  classify_sources: [tii_law_rss, fsc_press, fsc_penalty, news_rss]
+  classify_sources: [tii_law_rss, fsc_press, fsc_penalty, fsc_draft, news_rss]
   # 分類規則（D23）：標題命中 1 個、或內文命中 2 個不同關鍵字即標該類別；可多類別
   classify:
     categories:
@@ -62,6 +62,11 @@ parsing:
       撤銷: [契約撤銷權]
       保單借款|保險單借款: [保險單借款及契約效力的停止]
 
+# 商品情報雷達網站（scripts/update_radar.py）：爬完、解析完就匯出 real-data.js 到網站資料夾
+radar:
+  site_dir: ../../paris-hackathon-business-competition   # 相對於這個專案資料夾；也可以寫絕對路徑
+  git_branch: main            # --push 只在網站資料夾目前是這個分支時才 commit／push（Vercel 從這個分支部署）
+
 sources:
   - id: tii_law_rss
     tier: A
@@ -89,6 +94,9 @@ sources:
     list_pages: 3               # 每頁 15 筆；3 頁約一個月份
     # 只抓這些單位的內文；其他單位（銀行局、證期局…）只記列表列（D12）
     detail_units: [保險局, 金融監督管理委員會, 檢查局]
+    # 附件名稱命中就下載 PDF 並解析表格（市場數據用；2026-10-07 新增）
+    attachment_tables:
+      - 外幣保單新契約保費收入占整體新契約保費收入比率   # 每月「外幣保險商品銷售情形」新聞稿的附件
 
   - id: fsc_penalty            # 裁罰案件 RSS（D14，Handbook 原未列）
     tier: A
@@ -99,6 +107,92 @@ sources:
     # 只關這項格式檢查，憑證鏈與主機名稱仍驗證（D15）
     x509_strict: false
     feed_url: https://www.fsc.gov.tw/RSS/Messages?serno=201202290003&language=chinese
+  - id: fsc_draft              # 法規草案預告（2026-10-05 新增）：定案前先看到草案
+    tier: A
+    schedule: "50 */6 * * *"     # 一個月只有幾筆，每 6 小時一次就夠
+    adapter: adapters.fsc_draft:FscDraftAdapter
+    domain: www.fsc.gov.tw
+    x509_strict: false           # 同 fsc_press（D15）
+    # 路徑是 /RSS/Noticelaw；同一個 serno 用 /RSS/Messages 會回傳空 channel
+    feed_url: https://www.fsc.gov.tw/RSS/Noticelaw?serno=201202290010&language=chinese
+  - id: declared_rates         # 宣告利率（2026-10-05 新增）：利率變動型商品每月宣告利率
+    tier: B
+    schedule: "0 9 1-5 * *"      # 各公司在月初公告（日期不一），每月 1–5 日每天跑一次
+    adapter: adapters.declared_rates:DeclaredRatesAdapter
+    domain: multiple
+    x509_strict: false           # www.cathaylife.com.tw 憑證缺 Subject Key Identifier（同 D15，憑證鏈與主機名稱仍驗證）
+    name_filter: [美元, 利率變動] # 只收美元利率變動型（壽險、年金）；兩個都要符合
+    backfill_months: 12          # 資料庫還沒有這家公司的利率時回補幾個月（雷達的趨勢圖顯示 12 個月）
+    recent_months: 2             # 之後每次只抓最近幾個月
+    keep_months: 24              # 一次回傳全部歷史的來源（國泰、保誠）只留最近幾個月
+    # 2026-10-05 確認：下列 API 的 robots.txt 都未禁止、無機器人防護。
+    # 未收：安聯（Cloudflare 驗證，不繞過）、友邦（連線逾時）、台新（2026-01 併入新光，新來源待確認）、
+    #       富邦（HTML 分頁量大，待做）、安達（每張商品一個 PDF，待做）、法巴（官網只公告貨幣帳戶與萬能利率）
+    companies:
+      - id: cathay
+        name: 國泰人壽
+        kind: cathay_all         # 一個 GET 回傳全部商品、全部月份（約 7 MB）
+        page_url: https://www.cathaylife.com.tw/cathaylife/services/rate
+        api_url: https://www.cathaylife.com.tw/cathaylifeins/api/DTODBHZ6/getAllByJoinZ5
+      - id: pru
+        name: 保誠人壽
+        kind: pca_html           # 靜態頁含完整歷史；目前只公告這一張商品
+        page_url: https://www.pcalife.com.tw/zh/public-info/annuity/
+        product_name: 保誠人壽美利325美元利率變動型養老保險
+        product_code: 美利325    # 頁面沒有險種代碼，用商品簡稱
+      - id: kgi
+        name: 凱基人壽
+        kind: kgi_api
+        page_url: https://www.kgilife.com.tw/zh-tw/product-overview/interest/declare-interest
+        list_url: https://www.kgilife.com.tw/api/client/DeclareInterestList/GetData?sc_lang=zh-TW&sc_site=kgil-zh-tw
+        history_url: https://www.kgilife.com.tw/api/client/DeclareInterestHistory/GetData?sc_lang=zh-TW&sc_site=kgil-zh-tw
+        max_pages: 20
+      - id: taiwanlife
+        name: 台灣人壽
+        kind: taiwanlife_api
+        page_url: https://www.taiwanlife.com/investment-rate-interest-rate
+        api_url: https://www.taiwanlife.com/portal-api/Rate
+        subtypes: [B, D]         # B 外幣利變年金、D 外幣利變壽險
+        max_pages: 30
+      - id: nanshan
+        name: 南山人壽
+        kind: nanshan_api
+        page_url: https://www.nanshanlife.com.tw/nanshanlife/service-rate-1
+        api_url: https://www.nanshanlife.com.tw/nanshanlife/portal-api/DeclaredRate/List
+        product_types: [14, 17]  # 14 利率變動型年金、17 利率變動型商品
+        max_pages: 40
+  - id: bank_shelf            # 銀行通路上架（2026-10-05 新增）：各銀行代理銷售的保險商品，偵測上架／下架
+    tier: C
+    schedule: "10 4 * * *"       # 每天一次；列表沒變時第 3 層擋下，不產生新版本
+    adapter: adapters.bank_shelf:BankShelfAdapter
+    domain: multiple             # 各銀行依自己的網域限速
+    min_keep_ratio: 0.5          # 解析到的筆數少於目前上架數的一半 → 視為改版，不判定下架（同 D20）
+    x509_strict: false           # www.hncb.com.tw 憑證缺 Subject Key Identifier（同 D15，憑證鏈與主機名稱仍驗證）
+    # 2026-10-05 確認：三家的 robots.txt 都未禁止下列路徑、無機器人防護。
+    # 中國信託（JS 機器人驗證）不繞過；星展網頁不列商品名稱 → 不收
+    banks:
+      - id: b_mega
+        name: 兆豐銀行
+        kind: mega_api           # 商品頁 /personal/wealth/insurance/product-type 背後的 API（POST 表單）
+        pages:
+          - key: all
+            label: 保險商品總覽
+            url: https://www.megabank.com.tw/api/client/InsuranceOverview/GetInsurances?sc_lang=zh-TW&sc_site=bank-zh-tw&dic_lang=zh-TW
+            form: {itemID: "{24583E95-B7AD-4115-AE67-50F4FD047539}"}
+      - id: b_hncb
+        name: 華南銀行
+        kind: hncb_html
+        pages:
+          - {key: life_insurance, label: 壽險, url: "https://www.hncb.com.tw/wps/portal/HNCB/wealth/insurance/personal_insurance/life_insurance"}
+          - {key: investment_insurance, label: 投資型保險, url: "https://www.hncb.com.tw/wps/portal/HNCB/wealth/insurance/personal_insurance/investment_insurance"}
+          - {key: annuity_insurance, label: 年金保險, url: "https://www.hncb.com.tw/wps/portal/HNCB/wealth/insurance/personal_insurance/annuity_insurance"}
+          - {key: estate_credit_insurance, label: 房貸壽險, url: "https://www.hncb.com.tw/wps/portal/HNCB/wealth/insurance/personal_insurance/estate_credit_insurance"}
+          - {key: health_medical_insurance, label: 健康醫療險, url: "https://www.hncb.com.tw/wps/portal/HNCB/wealth/insurance/personal_insurance/health_medical_insurance"}
+      - id: b_sinopac
+        name: 永豐銀行
+        kind: sinopac_html       # 商品櫥窗（精選，可能不是完整上架清單）
+        pages:
+          - {key: life, label: 人身保險, url: "https://bank.sinopac.com/sinopacBT/personal/insurance/product/life.html"}
   # ---- M3 競品商品資料：投資型（D19–D21）。清單＝法定公開的「商品名稱、日期及文號」PDF ----
   - id: company_cardif_products  # 法巴人壽（自家基準）
     tier: C
@@ -185,6 +279,13 @@ sources:
       - name: ltn_business       # 自由時報財經（D26）；RSS 條款限非商業用途，黑客松 demo 可用，正式上線需授權
         url: https://news.ltn.com.tw/rss/business.xml   # 取自自由時報 RSS 服務頁，2026-10-05 尚未在 Mac 實跑確認
         keyword_filter: true
+      - name: udn_money_finance  # 經濟日報「金融」（2026-10-07）；robots 允許，條款限非商業用途，正式上線需授權
+        url: https://money.udn.com/rssfeed/news/1001/12017?ch=money
+        keyword_filter: true
+      - name: udn_money_industry # 經濟日報「產業」：保險公司策略、通路新聞偶爾在這裡
+        url: https://money.udn.com/rssfeed/news/1001/5591?ch=money
+        keyword_filter: true
+    # Google 新聞 RSS 不用：news.google.com 的 robots.txt 對所有爬蟲禁止 /rss（D17：不繞過）
     keywords: [保險, 壽險, 產險, 保單, 保費, 金管會]
     # 公關稿規則（只比對標題，命中即標 pr_noise，不丟棄）
     pr_noise_patterns: ["勇奪", "榮獲", "奪.{0,12}獎", "獲.{0,20}獎", "獎項", "大獎", "評比",

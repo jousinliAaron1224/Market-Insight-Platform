@@ -8,9 +8,13 @@
 - 只抓「保險局、金融監督管理委員會（本部）、檢查局」的內文；其他單位只記列表列（doc_type=list_row）。
 - 內文頁含每次都會變的「瀏覽人次」，content_hash 以正文＋附件清單計算（D11），raw 存原始位元組。
 - 無 ETag / Last-Modified；robots.txt 只限制 Googlebot，照常遵守。
+- 附件表格（2026-10-07）：附件名稱命中 config 的 attachment_tables 時，下載該 PDF、存 raw，
+  並把表格存進 meta["tables"]（例如「外幣保單新契約保費收入占整體新契約保費收入比率」，市場數據的幣別結構用）。
+  附件下載失敗不影響新聞稿本身，只記 meta["table_errors"]。
 """
 from __future__ import annotations
 
+import io
 import json
 import re
 from datetime import datetime
@@ -62,6 +66,20 @@ def parse_list(html: bytes | str) -> list[dict[str, str]]:
     return rows
 
 
+def pdf_tables(data: bytes) -> list[list[list[str]]]:
+    """PDF 附件裡的表格（pdfplumber）；每格去空白，空列略過。"""
+    import pdfplumber
+    out = []
+    with pdfplumber.open(io.BytesIO(data)) as pdf:
+        for page in pdf.pages:
+            for t in page.extract_tables():
+                rows = [[re.sub(r"\s+", "", c or "") for c in r] for r in t]
+                rows = [r for r in rows if any(r)]
+                if rows:
+                    out.append(rows)
+    return out
+
+
 def parse_detail(html: bytes, base_url: str) -> dict[str, Any]:
     tree = HTMLParser(html.decode("utf-8", "replace"))
     mc = tree.css_first(".maincontent")
@@ -104,6 +122,24 @@ class FscPressAdapter(SourceAdapter):
         self.units: set[str] = set(config.get("detail_units", DEFAULT_UNITS))
         self.respect_robots: bool = bool(config.get("respect_robots", True))
         self._rows: dict[str, dict[str, str]] = {}
+        # 附件名稱的 regex → 下載並解析表格
+        self.attachment_tables = [re.compile(x) for x in config.get("attachment_tables", [])]
+
+    def _attachment_tables(self, attachments: list[dict[str, str]], now) -> tuple[list[dict], list[str]]:
+        tables, errors = [], []
+        for a in attachments:
+            if not any(p.search(a["name"]) for p in self.attachment_tables):
+                continue
+            try:
+                # 附件下載點要帶 Referer，否則回網頁而不是 PDF
+                resp = self.ctx.http.get(a["url"], respect_robots=self.respect_robots, headers={"Referer": BASE + "home.jsp"})
+                if not resp.content.startswith(b"%PDF"):
+                    raise ValueError("附件不是 PDF")
+                path, _ = self.ctx.raw.put(self.source_id, resp.content, "pdf", now)
+                tables.append({"name": a["name"], "url": a["url"], "raw_path": path, "tables": pdf_tables(resp.content)})
+            except Exception as e:   # 附件失敗不影響新聞稿本身
+                errors.append(f"{a['name']}: {e!r}")
+        return tables, errors
 
     def list_items(self) -> list[ItemRef]:
         self._rows.clear()
@@ -163,11 +199,18 @@ class FscPressAdapter(SourceAdapter):
         detail = parse_detail(resp.content, ref.url)
         body = detail.pop("body_text", "")
         meta.update(detail)
+        if self.attachment_tables and detail.get("attachments"):
+            tables, errors = self._attachment_tables(detail["attachments"], now)
+            if tables:
+                meta["tables"] = tables
+            if errors:
+                meta["table_errors"] = errors
         meta["body_chars"] = len(body)
         meta["raw_sha256"] = raw_digest
         fingerprint = content_fingerprint({
             "title": meta.get("detail_title"), "date": meta.get("announced_date"),
             "body": body, "attachments": meta.get("attachments"),
+            **({"tables": [t["tables"] for t in meta["tables"]]} if meta.get("tables") else {}),
         })
         return RawDoc(
             source_id=self.source_id, item_key=ref.item_key, url=ref.url, fetched_at=now,
