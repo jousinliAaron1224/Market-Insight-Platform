@@ -105,6 +105,7 @@ sh scripts/schedule_radar.sh status         # 排程狀態＋最近一次結果
 sh scripts/schedule_radar.sh uninstall
 ```
 
+- 部署：Vercel Hobby 專案只接受專案擁有者本人的 commit，GitHub 觸發的部署會被擋，所以 `--push` 之後改用 Vercel CLI 從網站資料夾直接部署（`radar.vercel_deploy: true`）。網站資料夾已 `vercel link` 到 jousinliaaron1224 的 `product-intel-radar`，正式網址 https://product-intel-radar-taupe.vercel.app 。換電腦時要先 `npx vercel login`、在網站資料夾 `npx vercel link`。
 - 設定在 `config/sources.yaml` 的 `radar`：`site_dir`（網站資料夾）、`git_branch`（只有網站資料夾目前在這個分支時才 push，預設 `main`；在其他分支時只匯出、不 push）。只 commit `real-data.js`，網站其他未提交的修改不會被帶進去。
 - 單一來源失敗不中斷，照樣用資料庫現有資料匯出；匯出失敗就不 commit，網站維持上一版。結果寫在 `data/logs/last_update.json`，每月一個 log 檔 `data/logs/update_radar-YYYYMM.log`；同時只會有一個程序在跑（檔案鎖）。
 - 專案放在桌面時，macOS 會擋背景程式讀桌面（`Operation not permitted`，看 `data/logs/launchd.err`）：到「系統設定 → 隱私權與安全性 → 完整磁碟取用權限」加入 `status` 印出的 Python 執行檔，或把兩個專案移出桌面。

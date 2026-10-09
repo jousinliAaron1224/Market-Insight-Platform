@@ -66,6 +66,7 @@ parsing:
 radar:
   site_dir: ../../paris-hackathon-business-competition   # 相對於這個專案資料夾；也可以寫絕對路徑
   git_branch: main            # --push 只在網站資料夾目前是這個分支時才 commit／push（Vercel 從這個分支部署）
+  vercel_deploy: true         # push 後用 Vercel CLI 直接部署（網站資料夾已 vercel link 到 jousinliaaron1224 的 product-intel-radar）
 
 sources:
   - id: tii_law_rss

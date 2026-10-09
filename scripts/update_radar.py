@@ -1,7 +1,7 @@
 """一鍵更新「商品情報雷達」網站的真實資料：爬取 → 解析 → 匯出 real-data.js →（可選）commit 並 push 讓 Vercel 重新部署。
 
     python scripts/update_radar.py                 # 全部來源跑一輪、解析、匯出到雷達網站資料夾（不 push）
-    python scripts/update_radar.py --push          # 同上，有變動就 commit 並 push（排程用這個）
+    python scripts/update_radar.py --push          # 同上，有變動就 commit、push，並用 Vercel CLI 部署（排程用這個）
     python scripts/update_radar.py --skip-crawl    # 只重新解析與匯出（例如改了匯出規則）
     python scripts/update_radar.py --sources news_rss fsc_press   # 只跑部分來源
 
@@ -51,6 +51,16 @@ def publish(site: Path, branch: str | None, snapshot: str) -> str:
     git(site, "commit", "-m", f"資料自動更新：{snapshot}", "--", "real-data.js")
     git(site, "push", "origin", cur)
     return f"已 commit 並 push 到 {cur}"
+
+
+def vercel_deploy(site: Path) -> str:
+    """用 Vercel CLI 從網站資料夾直接部署到正式環境（網站資料夾要先 vercel link、這台電腦要 vercel login 過）。
+    不靠 GitHub 觸發部署：Vercel Hobby 專案只接受專案擁有者本人的 commit。"""
+    r = subprocess.run(["npx", "--yes", "vercel@latest", "deploy", "--prod", "--yes"], cwd=site, capture_output=True, text=True, timeout=900)
+    if r.returncode:
+        raise RuntimeError(f"vercel deploy 失敗：{(r.stderr or r.stdout).strip()[-400:]}")
+    url = next((w.strip('",') for w in (r.stdout + r.stderr).split() if w.strip('"').startswith("https://") and "vercel.app" in w), "")
+    return f"已部署到 Vercel {url}".strip()
 
 
 def main(argv=None) -> int:
@@ -119,6 +129,9 @@ def main(argv=None) -> int:
         try:
             report["publish"] = publish(site, rcfg.get("git_branch"), report["export"]["snapshot_at"])
             log.info(report["publish"])
+            if rcfg.get("vercel_deploy") and report["publish"].startswith("已 commit"):
+                report["deploy"] = vercel_deploy(site)
+                log.info(report["deploy"])
         except Exception as e:
             report["publish"] = repr(e)
             report["ok"] = False
