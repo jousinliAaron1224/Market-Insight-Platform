@@ -186,7 +186,7 @@ def label_rows(store, pids):
             elif "通路" in cats:
                 cat = "通路動態"
             else:
-                cat = "競品新商品" if co else "公司策略"
+                cat = "競品新商品" if co and re.search("新商品|保單|商品|上市|推出|開賣", title) else "公司策略"   # 只提到公司名稱（例如得獎）不算新商品
             news.append(dict(base, cat=cat, co=co, ch="—", cur="外幣" if "外幣" in scope + title else "—", seg="—", ev=None, en=None,
                              sum=sum_, impact={"lines": lines, "dir": "neu", "text": text}))
     for i, n in enumerate(news):
