@@ -565,7 +565,10 @@ def main(argv=None) -> int:
     for i, n in enumerate(pn):
         n["id"] = f"N{800 + i}"
     news = sorted(news + sn + rn + pn, key=lambda n: n["d"] or "", reverse=True)
-    products += shelf_products(store, cfg, shelf_data)
+    products += shelf_products(store, cfg, shelf_data, start=400 + len(products))   # 接在條款商品後面編號，不能重複
+    dup = {p["id"] for p in products if sum(q["id"] == p["id"] for q in products) > 1}
+    if dup:
+        raise SystemExit(f"商品編號重複：{sorted(dup)[:5]}")
     mk = market(store, pids)
     mk["fx_share"] = fx_share(store)
     data = {"meta": {"snapshot_at": now.strftime("%Y-%m-%d %H:%M"), "today": now.date().isoformat(), "self_company": store.self_company,
