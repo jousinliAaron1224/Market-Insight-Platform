@@ -118,6 +118,7 @@ def test_shelf_products_merge_banks_and_attach_declared_rate(tmp_path):
     kgi = next(p for p in out if p["co"] == "kgi")
     assert kgi["banks"] == ["兆豐銀行", "華南銀行"] and kgi["cur"] == "USD"          # 兩家銀行寫法不同（- 與 –）仍算同一張
     assert kgi["declared"] == 4.35 and kgi["declaredMonth"] == "2026-10" and kgi["rateSrc"] == "https://k"
+    assert kgi["rateHist"] == [["2026-10", 4.35]]
     assert next(p for p in out if p["co"] == "skl")["line"] == "par"                # 原本沒有的公司代碼
     assert len(out) == 2 and all(p["real"] and p["shelf"] and not p["auto"] for p in out)
 

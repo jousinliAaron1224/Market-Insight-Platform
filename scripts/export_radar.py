@@ -370,9 +370,11 @@ def shelf_products(store, cfg, shelf_data, start: int = 600):
         dr = []
     finally:
         c.close()
-    latest = {}   # (公司, 正規化名稱) → (月份, 利率)；同名多張時以最新月份為準
+    latest, hist = {}, {}   # (公司, 正規化名稱) → (月份, 利率)／{月份: 利率}；同名多張時以最新月份為準
     for co, name, m, v in dr:
         latest[(co, _norm(name))] = (m, v)
+        hist.setdefault((co, _norm(name)), {})[m] = v
+    months = sorted({m for _, _, m, _ in dr})[-RATE_MONTHS:]
     by = {}
     for b in shelf_data["banks"]:
         for it in b["items"]:
@@ -394,7 +396,9 @@ def shelf_products(store, cfg, shelf_data, start: int = 600):
     for i, p in enumerate(sorted(by.values(), key=lambda p: (order.index(p["co"]) if p["co"] in order else 9, p["co"], p["line"], p["name"]))):
         cur = next((x for x in p["cur"] if x), "") or ("USD" if re.search("美元|外幣", p["name"]) else "TWD")
         bank_names = [banks.get(x, x) for x in p["banks"]]
-        rate = latest.get((p["co"], _norm(p["name"], p["insurer"])))
+        key = (p["co"], _norm(p["name"], p["insurer"]))
+        rate = latest.get(key)
+        rate_hist = [[m, hist[key][m]] for m in months if m in hist.get(key, {})]
         pros = [f"{len(bank_names)} 家銀行上架（{'、'.join(bank_names)}）"]
         if rate:
             pros.append(f"{rate[0]} 宣告利率 {rate[1]}%")
@@ -406,6 +410,7 @@ def shelf_products(store, cfg, shelf_data, start: int = 600):
             "min": "—", "minTwd": None, "age": "—", "pay": "—", "term": "終身" if "終身" in p["name"] else "—", "coverage": "—",
             "fees": {"front": "—", "admin": "—", "surrender": "—"}, "premCharge": None, "surrMax": None, "feeIdx": None, "guarantee": None,
             "declared": rate[1] if rate else None, "declaredMonth": rate[0] if rate else None, "rateSrc": rate_src.get(p["co"]) if rate else None,
+            "rateHist": rate_hist or None,   # 最近 7 個月的宣告利率 [[月份, 利率], …]
             "predetermined": None, "riders": "—", "funds": None, "dividend": "—", "segment": "高資產客戶" if "高資產" in p["name"] else "—",
             "pros": pros, "cons": ["銀行上架清單只有商品名稱與險種，費用、保費門檻、投保年齡請看條款"],
             "conf": {}, "reviewed": True, "real": True, "auto": False, "shelf": True, "src": None, "versions": [], "missing": [],
