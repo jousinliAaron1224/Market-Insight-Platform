@@ -57,9 +57,18 @@ def publish(site: Path, branch: str | None, snapshot: str) -> str:
 def vercel_deploy(site: Path) -> str:
     """用 Vercel CLI 從網站資料夾直接部署到正式環境（網站資料夾要先 vercel link、這台電腦要 vercel login 過）。
     不靠 GitHub 觸發部署：Vercel Hobby 專案只接受專案擁有者本人的 commit。"""
-    r = subprocess.run(["npx", "--yes", "vercel@latest", "deploy", "--prod", "--yes"], cwd=site, capture_output=True, text=True, timeout=900)
-    if r.returncode:
-        raise RuntimeError(f"vercel deploy 失敗：{(r.stderr or r.stdout).strip()[-400:]}")
+    # 從不含 .git 的複本部署：CLI 會附上最新 commit 的作者，Hobby 專案只接受專案擁有者本人，
+    # 自動更新的 commit 作者不一定是擁有者，所以不帶 git 資訊（.vercelignore 照樣生效）
+    import shutil
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix="radar-deploy-") as tmp:
+        dst = Path(tmp) / "site"
+        shutil.copytree(site, dst, ignore=shutil.ignore_patterns(".git", "node_modules", ".DS_Store"))
+        r = subprocess.run(["npx", "--yes", "vercel@latest", "deploy", "--prod", "--yes"], cwd=dst,
+                           capture_output=True, text=True, timeout=900)
+    out = (r.stdout + r.stderr).strip()
+    if r.returncode or "BLOCKED" in out.upper():
+        raise RuntimeError(f"vercel deploy 失敗：{out[-800:]}")
     url = next((w.strip('",') for w in (r.stdout + r.stderr).split() if w.strip('"').startswith("https://") and "vercel.app" in w), "")
     return f"已部署到 Vercel {url}".strip()
 
