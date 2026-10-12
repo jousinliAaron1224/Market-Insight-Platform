@@ -26,6 +26,7 @@ sys.path.insert(0, str(ROOT))
 from core.config import load_config, resolve          # noqa: E402
 from web.server import build_store                    # noqa: E402
 from scripts.export_site import raw_url_map, relink   # noqa: E402
+from parsers.gist import gist                         # noqa: E402
 
 # 雷達網站的公司代碼
 CO = {"法商法國巴黎人壽": "cardif", "國泰人壽": "cathay", "富邦人壽": "fubon", "凱基人壽": "kgi", "台灣人壽": "taiwanlife"}
@@ -123,6 +124,33 @@ def product_rows(store, today: date):
     return rows, ids
 
 
+def source_text(store, raw_doc_id: int, source_id: str) -> str:
+    """一行主旨要用的原文：新聞 RSS 用暫存導言（30 天後清除，D16）；金管會裁罰、草案用 RSS 內文；新聞稿、法規用存下來的網頁。"""
+    c = sqlite3.connect(f"file:{store.db_path}?mode=ro", uri=True)
+    try:
+        if source_id == "news_rss":
+            r = c.execute("SELECT lead_text FROM news_leads WHERE raw_doc_id=? AND expires_at > ?",
+                          (raw_doc_id, datetime.now(timezone.utc).isoformat())).fetchone()
+            return r[0] if r else ""
+        r = c.execute("SELECT raw_path FROM raw_docs WHERE id=?", (raw_doc_id,)).fetchone()
+    finally:
+        c.close()
+    if not r:
+        return ""
+    path = Path(store.db_path).parent / r[0]
+    if not path.exists():
+        return ""
+    data = path.read_bytes()
+    if source_id in ("fsc_penalty", "fsc_draft"):
+        return json.loads(data).get("description", "")
+    if source_id == "fsc_press":
+        from adapters.fsc_press import parse_detail
+        return parse_detail(data, "").get("body_text", "")
+    if source_id == "tii_law_rss":
+        return data.decode("cp950", errors="replace").split("本系統由")[0]
+    return ""
+
+
 def label_rows(store, pids):
     labels = [x for x in store.labels({"hidden": "all", "limit": "2000"})["items"] if not x.get("hidden")]
     latest = {}   # 同一則公告改版（doc_revised）會有新舊兩筆分類，只留最新版
@@ -156,7 +184,13 @@ def label_rows(store, pids):
             sum_.append("判讀依據：" + "、".join(pi["reasons"][:4]))
         title = d["title"]
         co = mentioned(title + (extra.get("respondent") or ""))
-        base = {"d": d["date"], "t": title, "src": d.get("source"), "real": True, "auto": True, "url": d.get("url"),
+        try:
+            g = gist(d.get("source_id") or "", source_text(store, l["raw_doc_id"], d.get("source_id") or ""))
+        except Exception:   # 原文解析不到就不顯示主旨，不影響匯出
+            g = ""
+        if g and g.rstrip("。…") in title:   # 主旨和標題一樣就不重複
+            g = ""
+        base = {"d": d["date"], "t": title, "src": d.get("source"), "real": True, "auto": True, "url": d.get("url"), "gist": g or None,
                 "lines": lines, "imp": IMP.get(d.get("impact"), 2), "why": why, "prods": prods, "prodCount": n_prods, "srcId": d.get("source_id")}
         if d.get("source_id") == "tii_law_rss":
             topic = (pi.get("company_level") or [None])[0] or ("投資型商品規範" if lines else "其他法規")
