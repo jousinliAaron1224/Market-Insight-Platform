@@ -49,6 +49,7 @@ def publish(site: Path, branch: str | None, snapshot: str) -> str:
         return "real-data.js 沒有變動，不需要 commit"
     git(site, "add", "--", "real-data.js")
     git(site, "commit", "-m", f"資料自動更新：{snapshot}", "--", "real-data.js")
+    git(site, "pull", "--rebase", "--autostash", "origin", cur)   # 隊友在這期間推了東西也不會 push 失敗
     git(site, "push", "origin", cur)
     return f"已 commit 並 push 到 {cur}"
 
