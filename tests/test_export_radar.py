@@ -139,3 +139,20 @@ def test_fx_share_reads_latest_press_attachment_table(tmp_path):
     out = fx_share(SimpleNamespace(db_path=str(tmp_path / "intel.db")))
     assert out["points"] == [{"p": "2025 年 1–7 月", "y": 2025, "fx": 40.81}, {"p": "2026 年 1–7 月", "y": 2026, "fx": 35.59}]
     assert out["url"] == "https://f/news" and out["date"] == "2026-09-29"
+
+
+def test_fee_extraction_handles_fubon_cathay_and_split_cells():
+    from web.product_lab import extract_features
+    prod = {"name": "某某變額年金保險", "line": "變額年金保險", "coverage": "[]", "payment_modes": "[]", "currency": "TWD"}
+    art = lambda kind, text, title="": {"kind": kind, "title": title, "text": text}  # noqa: E731
+    # 富邦：費用表接在最後一條後面，「本公司未另外收取」＝0
+    fubon = extract_features(prod, [art("article", "因本契約涉訟者…【附表一】本公司收取之相關費用一覽表 一、保費費用 本公司未另外收取 二、保險相關費 …"
+                                                  " 四、解約費用第1年:5%,第2年:4%,第3年起:0% 五、解約及部分提領費用", "管轄法院")])
+    assert fubon["premium_charge_pct"] == 0 and fubon["surrender_max_pct"] == 5
+    # 國泰：完整的費用一覽表沒有保費費用項目＝不收前置費用
+    cathay = extract_features(prod, [art("appendix", "附表一:本契約相關費用 一、投資型年金保單保險公司收取之相關費用一覽表 一、保單行政費 第1年每月0.083%"
+                                                    " 三、解約及部分提領費用 1.解約費用 第1年 6.5% 第2年 5.5% 第5年及以後 0%")])
+    assert cathay["premium_charge_pct"] == 0 and cathay["premium_charge_note"] and cathay["surrender_max_pct"] == 6.5
+    # 法巴：表格把「解約費用」拆成兩行
+    split = extract_features(prod, [art("appendix", "相關費用一覽表 一、保費費用 1.保費費用率為4.2% 四、解約及部分提領費用\n1.解約費無。\n用\n2.部分提無。")])
+    assert split["premium_charge_pct"] == 4.2 and split["surrender_max_pct"] == 0

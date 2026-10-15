@@ -56,7 +56,7 @@ def _first_pct_window(text: str, key: str, stop: tuple[str, ...], before: int = 
     if i < 0:
         return None, None
     tail = text[i + len(key):i + len(key) + after]
-    if re.match(r"[\s:：]*(?:\d\.\s*\S{0,4}\s*)?(無|免收|0%|不收取)", tail):
+    if re.match(r"[\s:：]*(?:\d\.\s*\S{0,4}\s*)?(無|免收|0%|不收取|(?:本公司)?未另外?收取|不另收取)", tail):
         return 0.0, i
     end = len(tail)
     for s in stop:
@@ -106,9 +106,22 @@ def extract_features(prod: dict[str, Any], arts: list[dict[str, Any]]) -> dict[s
     f["distribution"] = "撥回" in appendix or "撥回" in name   # 示範條款都有「收益分配或撥回」條，看附表／標的批註才準
     f["stop_profit"] = any("停利" in t for t in titles)
     f["bonus"] = any(("加值" in t or "回饋金" in t) for t in titles) or "加值回饋金" in appendix
-    f["premium_charge_pct"], _ = _first_pct_window(appendix, "保費費用", ("二、", "保單管理費", "保險相關費用"))
-    key = "解約費用率" if "解約費用率" in appendix else "解約費用"
-    f["surrender_max_pct"], _ = _first_pct_window(appendix, key, ("部分提領費用", "2.部分", "(2)", "五、"), before=0, after=900)
+    # 費用一覽表：多數公司拆成「附表」條文；富邦等把附表接在最後一條後面，從「【附表」起也一起找
+    fees = appendix
+    j = CJK_GAP.sub("", alltext).find("【附表")
+    if j >= 0 and "費用" not in appendix:
+        fees = CJK_GAP.sub("", alltext)[j:]
+    f["premium_charge_pct"], _ = _first_pct_window(fees, "保費費用", ("二、", "保單管理費", "保險相關費用"))
+    if f["premium_charge_pct"] is None and "前置費用" in fees:
+        f["premium_charge_pct"], _ = _first_pct_window(fees, "前置費用", ("二、", "保單管理費", "保險相關費用"))
+    if f["premium_charge_pct"] is None and re.search(r"相關費用(一覽表)?", fees) and "解約費用" in fees:
+        # 完整的費用一覽表裡沒有「保費費用／前置費用」這一項（國泰常見，改收保單行政費）＝不收前置費用
+        f["premium_charge_pct"] = 0.0
+        f["premium_charge_note"] = "費用一覽表沒有保費費用項目"
+    key = "解約費用率" if "解約費用率" in fees else "解約費用"
+    f["surrender_max_pct"], _ = _first_pct_window(fees, key, ("部分提領費用", "2.部分", "(2)", "五、"), before=0, after=900)
+    if f["surrender_max_pct"] is None and re.search(r"解約費\s*用?\s*[:：]?\s*無", fees):   # 表格把「解約費用」拆成兩行：「1.解約費無。／用」
+        f["surrender_max_pct"] = 0.0
     f["partial_withdrawal"] = any("部分提領" in t for t in titles)
     f["basic_amount_change"] = any("基本保額" in t for t in titles)
     f["riders"] = prod.get("riders") or None
