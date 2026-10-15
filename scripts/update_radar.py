@@ -123,6 +123,15 @@ def main(argv=None) -> int:
         report["parse"] = {"crashed": repr(e)}
         log.exception("解析失敗")
 
+    # 2b. AI 判讀新情報對法巴的影響（Ollama；沒有金鑰就跳過，網站照舊用規則判讀）
+    try:
+        from scripts.ai_insights import run as ai_run
+        report["ai"] = ai_run(cfg, log=lambda m: None)
+        log.info("AI 判讀：%s", report["ai"])
+    except Exception as e:
+        report["ai"] = {"crashed": repr(e)}
+        log.exception("AI 判讀失敗（不影響匯出）")
+
     # 3. 匯出 real-data.js（失敗就停在這裡，網站維持上一版資料）
     from scripts.export_radar import main as export_main
     try:

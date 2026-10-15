@@ -66,6 +66,8 @@ parsing:
 radar:
   site_dir: ../../paris-hackathon-business-competition   # 相對於這個專案資料夾；也可以寫絕對路徑
   git_branch: main            # --push 只在網站資料夾目前是這個分支時才 commit／push（Vercel 從這個分支部署）
+  ai_model: deepseek-v4-pro:0813   # AI 判讀情報用的 Ollama 模型（scripts/ai_insights.py；金鑰放 .env 的 OLLAMA_API_KEY）
+  ai_limit: 60                # 每次最多判讀幾則（已判讀過的不重做）
   vercel_deploy: true         # push 後用 Vercel CLI 直接部署（網站資料夾已 vercel link 到 jousinliaaron1224 的 product-intel-radar）
 
 sources:

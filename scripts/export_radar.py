@@ -151,6 +151,27 @@ def source_text(store, raw_doc_id: int, source_id: str) -> str:
     return ""
 
 
+LINE_NAME = {"inv": "投資型", "par": "分紅", "mort": "房貸壽險", "usd": "美元利變・年金"}
+
+
+def apply_ai(news, regs, store):
+    """有 AI 判讀（scripts/ai_insights.py）的情報與法規，用 AI 的影響說明、優先度、負責部門與建議行動取代規則判讀。"""
+    from scripts.ai_insights import load
+    ai = load(store.db_path)
+    for kind, rows in (("news", news), ("regs", regs)):
+        for r in rows:
+            a = ai.get(r.pop("_rid", None))
+            if not a:
+                continue
+            lines = a["lines"] or r["lines"]
+            r.update(why=a["why"], imp=a["priority"], lines=lines,
+                     ai={"model": a["model"], "at": a["at"][:10], "owner": a["owner"], "priority": a["priority"], "actions": a["actions"]})
+            if kind == "news":
+                r["impact"] = {"lines": lines, "dir": a["impact_dir"], "text": a["impact_text"]}
+            else:
+                r.update(analysis=a["impact_text"], design=a["actions"] or r["design"], affected=[LINE_NAME[x] for x in lines] or r["affected"])
+
+
 def label_rows(store, pids):
     labels = [x for x in store.labels({"hidden": "all", "limit": "2000"})["items"] if not x.get("hidden")]
     latest = {}   # 同一則公告改版（doc_revised）會有新舊兩筆分類，只留最新版
@@ -190,7 +211,7 @@ def label_rows(store, pids):
             g = ""
         if g and g.rstrip("。…") in title:   # 主旨和標題一樣就不重複
             g = ""
-        base = {"d": d["date"], "t": title, "src": d.get("source"), "real": True, "auto": True, "url": d.get("url"), "gist": g or None,
+        base = {"_rid": l["raw_doc_id"], "d": d["date"], "t": title, "src": d.get("source"), "real": True, "auto": True, "url": d.get("url"), "gist": g or None,
                 "lines": lines, "imp": IMP.get(d.get("impact"), 2), "why": why, "prods": prods, "prodCount": n_prods, "srcId": d.get("source_id")}
         if d.get("source_id") == "tii_law_rss":
             topic = (pi.get("company_level") or [None])[0] or ("投資型商品規範" if lines else "其他法規")
@@ -223,6 +244,7 @@ def label_rows(store, pids):
                 cat = "競品新商品" if co and re.search("新商品|保單|商品|上市|推出|開賣", title) else "公司策略"   # 只提到公司名稱（例如得獎）不算新商品
             news.append(dict(base, cat=cat, co=co, ch="—", cur="外幣" if "外幣" in scope + title else "—", seg="—", ev=None, en=None,
                              sum=sum_, impact={"lines": lines, "dir": "neu", "text": text}))
+    apply_ai(news, regs, store)
     for i, n in enumerate(news):
         n["id"] = f"N{500 + i}"
     for i, g in enumerate(regs):
