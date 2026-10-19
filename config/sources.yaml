@@ -264,6 +264,22 @@ sources:
       - {id: 7191, name: life_indicators, purpose: company, note: 壽險財務業務指標（保險局）：各公司每季比率（保費變動、繼續率、費用率、ROE…），無保費金額}
       # 13517 保險業保費收入統計表（保發中心 I07）：只有產險／人身保險業全年合計，人身部分與 104113 年度列相同 → 不加
 
+  - id: macro                  # 總體經濟指標（2026-10-19）：美債殖利率、聯準會利率、美元兌新台幣、台灣央行利率
+    tier: A
+    schedule: "30 7 * * *"       # 每天一次（FRED 前一個交易日的資料約在美東早上更新）
+    adapter: adapters.macro:MacroAdapter
+    domain: multiple
+    years: 5                     # FRED 只抓近 5 年
+    x509_strict: false           # www.cbc.gov.tw 的憑證缺 Subject Key Identifier（同 D15，憑證鏈與主機名稱仍驗證）
+    allow_empty_runs: true
+    series:
+      - {id: ust10, kind: fred, code: DGS10, name: 美國 10 年期公債殖利率, unit: "%", source: FRED（聖路易聯準銀行）, page: "https://fred.stlouisfed.org/series/DGS10"}
+      - {id: ust2, kind: fred, code: DGS2, name: 美國 2 年期公債殖利率, unit: "%", source: FRED（聖路易聯準銀行）, page: "https://fred.stlouisfed.org/series/DGS2"}
+      - {id: fed, kind: fred, code: DFEDTARU, name: 聯準會利率目標上限, unit: "%", source: FRED（聖路易聯準銀行）, page: "https://fred.stlouisfed.org/series/DFEDTARU"}
+      - {id: usdtwd, kind: fred, code: DEXTAUS, name: 美元兌新台幣, unit: 元, source: FRED（聖路易聯準銀行）, page: "https://fred.stlouisfed.org/series/DEXTAUS"}
+      - {id: cbc, kind: cbc, name: 中央銀行利率, unit: "%", source: 中央銀行（政府資料開放平臺 10783）, page: "https://data.gov.tw/dataset/10783",
+         url: "https://www.cbc.gov.tw/public/data/OpenData/%E7%B6%93%E7%A0%94%E8%99%95/EG28D01.csv"}
+
   - id: news_rss               # D9／D10／D16
     tier: D
     schedule: "*/45 * * * *"

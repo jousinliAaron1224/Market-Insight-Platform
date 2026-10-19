@@ -361,7 +361,10 @@ def rates(store, cfg):
     allnow = sorted(p["v"][latest] for p in by.values() if latest in p["v"])
     return {"months": months, "latest": latest, "prev": prev, "market": {"n": len(allnow), "med": _q(allnow, .5)},
             "dist": dist, "moves": moves, "history": hist, "last_change": last_change, "movers": movers[:8],
-            "series": series, "companies": companies}
+            "series": series, "companies": companies,
+            # 全市場每月中位數（所有有公告的商品，不限固定樣本）：和美債殖利率對照用
+            "market_trend": [{"m": m, "med": _q(sorted(p["v"][m] for p in by.values() if m in p["v"]), .5),
+                              "n": sum(1 for p in by.values() if m in p["v"])} for m in months if any(m in p["v"] for p in by.values())]}
 
 
 SHELF_LINE = {"investment": "inv", "participating": "par", "mortgage_term": "mort", "usd_interest": "usd", "annuity": "usd"}
@@ -582,6 +585,76 @@ def fx_share(store):
             "pdf": t["url"], "points": pts}
 
 
+def macro(store, rates_data=None):
+    """總體經濟指標（adapters/macro.py）：每個序列取最新一版，日資料轉成月底值，算最新值與一個月、一年的變化。"""
+    c = sqlite3.connect(f"file:{store.db_path}?mode=ro", uri=True)
+    try:
+        rows = c.execute("""SELECT item_key, url, meta FROM raw_docs WHERE source_id='macro' AND id IN
+                            (SELECT MAX(id) FROM raw_docs WHERE source_id='macro' GROUP BY item_key)""").fetchall()
+    except sqlite3.OperationalError:
+        rows = []
+    finally:
+        c.close()
+    if not rows:
+        return None
+    out, conc = {"series": {}}, []
+
+    def at_or_before(pts, d):
+        v = [p for p in pts if p[0] <= d]
+        return v[-1] if v else None
+
+    for key, url, meta in rows:
+        m = json.loads(meta)
+        sid, pts = m["series"], m["points"]
+        if m["kind"] == "cbc":
+            steps = [p for p in pts if p[0] >= "2015-01-01"]
+            out["cbc"] = {"name": m["title"], "source": m.get("source_name"), "page": m.get("page"), "url": url,
+                          "steps": steps, "latest": pts[-1], "prev": pts[-2] if len(pts) > 1 else None}
+            continue
+        last = pts[-1]
+        d = date.fromisoformat(last[0])
+        m1 = at_or_before(pts, (d - timedelta(days=30)).isoformat())
+        y1 = at_or_before(pts, (d - timedelta(days=365)).isoformat())
+        monthly = {}
+        for p in pts:   # 月底值（每月最後一個交易日）
+            monthly[p[0][:7]] = p[1]
+        mon = [[k, v] for k, v in sorted(monthly.items())][-60:]
+        ser = {"name": m["title"], "unit": m.get("unit"), "source": m.get("source_name"), "page": m.get("page"),
+               "latest": last, "m1": m1, "y1": y1, "monthly": mon}
+        if sid == "fed":   # 最近一次調整
+            chg = next(((pts[i - 1], pts[i]) for i in range(len(pts) - 1, 0, -1) if pts[i][1] != pts[i - 1][1]), None)
+            ser["last_change"] = {"date": chg[1][0], "from": chg[0][1], "to": chg[1][1]} if chg else None
+        out["series"][sid] = ser
+    S = out["series"]
+    pp = lambda x: f"{x:+.2f}".replace("+", "升 ").replace("-", "降 ")   # noqa: E731
+    if "ust10" in S and S["ust10"]["m1"]:
+        u = S["ust10"]
+        conc.append(f"美國 10 年期公債殖利率 {u['latest'][1]:.2f}%（{u['latest'][0]}），一個月{pp(u['latest'][1] - u['m1'][1])} 個百分點"
+                    + (f"、一年{pp(u['latest'][1] - u['y1'][1])} 個百分點。" if u["y1"] else "。"))
+    if "fed" in S and S["fed"].get("last_change"):
+        f, lc = S["fed"], S["fed"]["last_change"]
+        conc.append(f"聯準會利率目標上限 {f['latest'][1]:.2f}%，最近一次在 {lc['date']} 由 {lc['from']:.2f}% {'調升' if lc['to'] > lc['from'] else '調降'}。")
+    if rates_data and rates_data.get("market_trend") and "ust10" in S:
+        mt = rates_data["market_trend"]
+        ust = dict(S["ust10"]["monthly"])
+        sp = [{"m": x["m"], "declared": x["med"], "ust10": ust.get(x["m"]), "spread": round(x["med"] - ust[x["m"]], 2) if x["m"] in ust else None} for x in mt]
+        out["spread"] = sp
+        ok = [x for x in sp if x["spread"] is not None]
+        if len(ok) >= 2:
+            a, b = ok[0], ok[-1]
+            conc.append(f"美元利變宣告利率市場中位數 {b['declared']:.2f}%，比美債 10 年期 {'低' if b['spread'] < 0 else '高'} {abs(b['spread']):.2f} 個百分點"
+                        f"（{a['m']} 時差 {a['spread']:+.2f}）；美債上升時宣告利率通常落後調整。")
+    if "cbc" in out:
+        cb = out["cbc"]
+        conc.append(f"台灣央行重貼現率 {cb['latest'][1]:.3f}%，自 {cb['latest'][0]} 起未調整。")
+    if "usdtwd" in S and S["usdtwd"]["y1"]:
+        x = S["usdtwd"]
+        chg = (x["latest"][1] / x["y1"][1] - 1) * 100
+        conc.append(f"美元兌新台幣 {x['latest'][1]:.2f}（{x['latest'][0]}），一年前 {x['y1'][1]:.2f}，新台幣{'貶值' if chg > 0 else '升值'} {abs(chg):.1f}%。")
+    out["conclusions"] = conc
+    return out
+
+
 def sources(store):
     meta = store.meta()
     names = dict(meta.get("source_labels") or {})
@@ -627,6 +700,7 @@ def main(argv=None) -> int:
         raise SystemExit(f"商品編號重複：{sorted(dup)[:5]}")
     mk = market(store, pids)
     mk["fx_share"] = fx_share(store)
+    mk["macro"] = macro(store, rate_data)
     data = {"meta": {"snapshot_at": now.strftime("%Y-%m-%d %H:%M"), "today": now.date().isoformat(), "self_company": store.self_company,
                      "counts": {"products": len(products), "news": len(news), "regs": len(regs),
                                 "shelf": sum(b["count"] for b in shelf_data["banks"])}},
