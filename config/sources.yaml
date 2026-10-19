@@ -262,6 +262,11 @@ sources:
       - {id: 14539, name: lia_performance, purpose: demand_ref, note: 壽險業績統計（壽險公會）：只有一期初／續年度×投資型／傳統型，公告 2020-03-25}
       - {id: 104113, name: ib_premium_monthly, purpose: demand, note: 人身保險業保費收入（保發中心 I10）：全市場依險種、依月，無公司別}
       - {id: 7191, name: life_indicators, purpose: company, note: 壽險財務業務指標（保險局）：各公司每季比率（保費變動、繼續率、費用率、ROE…），無保費金額}
+      # 目標客群（2026-10-19）：聯徵中心房貸借款人（房貸壽險的客群）、國發會人口年齡結構（年金／退休客群）
+      - {id: 21946, name: jcic_mortgage_age, purpose: audience, note: 聯徵中心房貸借款人各年齡層新增授信金額及利率（每月，2012 起）}
+      - {id: 113748, name: jcic_mortgage_gender, purpose: audience, note: 聯徵中心購置住宅貸款統計分析表-性別（流量，每季）：平均授信額度、核貸成數、利率}
+      - {id: 151726, name: jcic_loan_age, purpose: audience, note: 聯徵中心不同年齡及貸款類別授信（每年）：房貸存量借款人依年齡}
+      - {id: 6326, name: ndc_population, purpose: audience, note: 國發會都市及區域發展統計彙編 1-1：各縣市人口年齡結構（每年）}
       # 13517 保險業保費收入統計表（保發中心 I07）：只有產險／人身保險業全年合計，人身部分與 104113 年度列相同 → 不加
 
   - id: macro                  # 總體經濟指標（2026-10-19）：美債殖利率、聯準會利率、美元兌新台幣、台灣央行利率

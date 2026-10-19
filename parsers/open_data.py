@@ -13,6 +13,7 @@ from __future__ import annotations
 import csv
 import json
 import io
+import re
 from typing import Any
 
 I10_LINES = {
@@ -128,4 +129,90 @@ def parse_ib_7191(data: bytes) -> list[dict[str, Any]]:
                     "company": str(r["INSURER_Name"]).strip(), "values": vals})
     if not out:
         raise ValueError("7191：沒有任何資料列")
+    return out
+
+
+# ---------- 目標客群（2026-10-19）：聯徵中心房貸、國發會人口年齡結構 ----------
+def _rows(data: bytes) -> list[dict[str, str]]:
+    """CSV → 每列一個 dict；欄名去掉 BOM、引號與空白。"""
+    rows = list(csv.reader(io.StringIO(_text(data))))
+    if not rows:
+        return []
+    head = [h.replace("﻿", "").strip().strip('"') for h in rows[0]]
+    return [dict(zip(head, (c.strip() for c in r))) for r in rows[1:] if len(r) >= len(head) and any(r)]
+
+
+def _col(head: list[str], *keys: str) -> str:
+    """找第一個包含所有關鍵字的欄名；找不到就報錯並列出實際欄名（格式改了才看得出來）。"""
+    for h in head:
+        if all(k in h for k in keys):
+            return h
+    raise ValueError(f"找不到欄位 {keys}；實際欄位：{head}")
+
+
+def parse_jcic_mortgage_age(data: bytes) -> list[dict[str, Any]]:
+    """聯徵中心「房貸借款人各年齡層下的新增授信金額及利率」（data.gov.tw 21946，每月）
+    → [{m:'YYYY-MM', age:'30-40', n:人數, amt:新增授信（百萬元）, rate:平均利率%}]"""
+    rows = _rows(data)
+    if not rows:
+        return []
+    h = list(rows[0])
+    cy, cm, ca, cn, cv, cr = _col(h, "年"), _col(h, "月"), _col(h, "年齡"), _col(h, "人數"), _col(h, "授信"), _col(h, "利率")
+    out = []
+    for r in rows:
+        n, v, rt = _num(r[cn]), _num(r[cv]), _num(r[cr])
+        if n is None or not r[cy].isdigit():
+            continue
+        out.append({"m": f"{int(r[cy])}-{int(r[cm]):02d}", "age": r[ca], "n": int(n), "amt": round((v or 0) / 1000, 1),
+                    "rate": round(rt, 3) if rt is not None else None})
+    return out
+
+
+def parse_jcic_mortgage_gender(data: bytes) -> list[dict[str, Any]]:
+    """聯徵中心「購置住宅貸款統計分析表-性別（流量）」（data.gov.tw 113748，每季）
+    → [{q:'YYYY-MM', sex:'男'|'女', n, limit:平均授信額度（千元）, value:平均鑑估值（千元）, ltv:核貸成數加權平均%, rate, area:平均建物面積 m²}]"""
+    rows = _rows(data)
+    if not rows:
+        return []
+    h = list(rows[0])
+    c = {"y": _col(h, "年"), "m": _col(h, "月"), "sex": _col(h, "性別"), "n": _col(h, "樣本數"), "limit": _col(h, "授信額度"),
+         "value": _col(h, "鑑估值"), "ltv": _col(h, "核貸成數", "加權"), "rate": _col(h, "利率"), "area": _col(h, "面積")}
+    out = []
+    for r in rows:
+        if not r[c["y"]].isdigit():
+            continue
+        out.append({"q": f"{int(r[c['y']])}-{int(r[c['m']]):02d}", "sex": {"1": "男", "2": "女"}.get(r[c["sex"]], r[c["sex"]]),
+                    **{k: _num(r[c[k]]) for k in ("n", "limit", "value", "ltv", "rate", "area")}})
+    return out
+
+
+def parse_jcic_loan_age(data: bytes) -> list[dict[str, Any]]:
+    """聯徵中心「不同年齡及貸款類別區隔下授信金額及逾放比」（data.gov.tw 151726，每年）
+    → [{y, sex, age, type:'房貸'…, n:人數, limit:額度（百萬元）, bal:餘額（百萬元）, npl:逾放比}]"""
+    out = []
+    for r in _rows(data):
+        if not r.get("年", "").isdigit():
+            continue
+        t = re.sub(r"^\d+\.", "", r.get("授信類別", "")).replace("(含修繕)", "")
+        out.append({"y": int(r["年"]), "sex": {"1": "男", "2": "女"}.get(r.get("性別"), r.get("性別")), "age": r.get("年齡"), "type": t,
+                    "n": _num(r.get("人數")), "limit": _num(r.get("額度")), "bal": _num(r.get("餘額")), "npl": _num(r.get("逾期放款比率"))})
+    return out
+
+
+def parse_ndc_population(data: bytes) -> list[dict[str, Any]]:
+    """國發會「1-1 土地面積、戶數、人口數、人口密度、年齡結構及扶養比例」（data.gov.tw 6326，每年）
+    → [{y, area, pop, households, p0_14, p15_64, p65（%）, dep:扶養比%}]"""
+    rows = _rows(data)
+    if not rows:
+        return []
+    h = list(rows[0])
+    c = {"pop": next(x for x in h if x == "年底人口數"), "hh": _col(h, "戶數"), "p0": _col(h, "0~14", "百分比"),
+         "p15": _col(h, "15~64", "百分比"), "p65": _col(h, "65", "百分比"), "dep": _col(h, "扶養")}
+    out = []
+    for r in rows:
+        if not r.get("年", "").isdigit():
+            continue
+        out.append({"y": int(r["年"]), "area": r["地區"], "pop": _num(r[c["pop"]]), "households": _num(r[c["hh"]]),
+                    "p0_14": round(_num(r[c["p0"]]) or 0, 2), "p15_64": round(_num(r[c["p15"]]) or 0, 2),
+                    "p65": round(_num(r[c["p65"]]) or 0, 2), "dep": round(_num(r[c["dep"]]) or 0, 2)})
     return out

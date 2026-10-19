@@ -655,10 +655,122 @@ def macro(store, rates_data=None):
     return out
 
 
+def _open_data_latest(store, name):
+    """open_data 某個資料集最新一版的原始檔 → (bytes, 抓取時間)；沒有就回 (None, None)。"""
+    c = sqlite3.connect(f"file:{store.db_path}?mode=ro", uri=True)
+    try:
+        r = c.execute("""SELECT raw_path, fetched_at FROM raw_docs WHERE source_id='open_data' AND json_extract(meta, '$.dataset')=?
+                         ORDER BY id DESC LIMIT 1""", (name,)).fetchone()
+    except sqlite3.OperationalError:
+        r = None
+    finally:
+        c.close()
+    if not r:
+        return None, None
+    path = Path(store.db_path).parent / r[0]
+    return (path.read_bytes(), r[1]) if path.exists() else (None, None)
+
+
+def _age(a):
+    """年齡區間的顯示文字：'30-40' → '30–40 歲'、'60以上' → '60 歲以上'。"""
+    return a.replace("以上", " 歲以上") if "以上" in a else a.replace("-", "–") + " 歲"
+
+
+def audience(store):
+    """目標客群：聯徵中心房貸借款人（房貸壽險）、國發會人口年齡結構（年金、退休客群）。全部是公開統計，沒有個人資料。"""
+    from parsers.open_data import parse_jcic_loan_age, parse_jcic_mortgage_age, parse_jcic_mortgage_gender, parse_ndc_population
+    out, conc = {}, []
+    src = lambda name, ds, fetched: {"name": name, "url": f"https://data.gov.tw/dataset/{ds}", "fetched_at": fetched}  # noqa: E731
+
+    # 1. 新承做房貸借款人的年齡分布（每月）
+    raw, at = _open_data_latest(store, "jcic_mortgage_age")
+    rows = parse_jcic_mortgage_age(raw) if raw else []
+    if rows:
+        months = sorted({r["m"] for r in rows})
+        last = months[-1]
+        ages = [a for a in dict.fromkeys(r["age"] for r in rows)]
+        by = {(r["m"], r["age"]): r for r in rows}
+        cur = [by[(last, a)] for a in ages if (last, a) in by]
+        tot = sum(r["n"] for r in cur) or 1
+
+        def roll(ms):   # 12 個月合計的年齡占比（比單月穩定）
+            n = {a: sum(by[(m, a)]["n"] for m in ms if (m, a) in by) for a in ages}
+            t = sum(n.values()) or 1
+            return {a: round(n[a] / t * 100, 1) for a in ages}
+        r12, p12 = roll(months[-12:]), roll(months[-24:-12]) if len(months) >= 24 else None
+        out["mortgage_age"] = {
+            "latest": last, "total": tot,
+            "groups": [{"age": r["age"], "n": r["n"], "share": round(r["n"] / tot * 100, 1), "avg_loan": round(r["amt"] / r["n"] * 100, 0) if r["n"] else None,
+                        "rate": r["rate"], "share12": r12[r["age"]], "share12_prev": p12[r["age"]] if p12 else None} for r in cur],
+            "monthly": [{"m": m, **{a: by[(m, a)]["n"] for a in ages if (m, a) in by}} for m in months[-36:]],
+            "ages": ages, "source": src("金融聯合徵信中心（房貸借款人各年齡層新增授信）", 21946, at)}
+        g = out["mortgage_age"]["groups"]
+        core = [x for x in g if x["age"] in ("30-40", "40-50")]
+        old = next((x for x in g if x["age"].startswith("60")), None)
+        avg_all = round(sum(r["amt"] for r in cur) / tot * 100)
+        conc.append(f"{last} 新承做房貸借款人 {tot:,} 人，30–50 歲占 {sum(x['share'] for x in core):.1f}%；平均每人新增房貸 {avg_all:,} 萬元"
+                    + (f"（{_age(max(g, key=lambda x: x['avg_loan'] or 0)['age'])}最高，{max(x['avg_loan'] or 0 for x in g):,.0f} 萬元）。" if g else "。"))
+        if old and old["share12_prev"] is not None:
+            conc.append(f"近 12 個月 60 歲以上的新房貸借款人占 {old['share12']}%（前 12 個月 {old['share12_prev']}%）；房貸壽險的投保年齡上限與核保要能涵蓋這群人。")
+
+    # 2. 房貸條件（每季，男女合計）
+    raw, at = _open_data_latest(store, "jcic_mortgage_gender")
+    rows = parse_jcic_mortgage_gender(raw) if raw else []
+    if rows:
+        qs = sorted({r["q"] for r in rows})[-20:]
+        agg = []
+        for q in qs:
+            rs = [r for r in rows if r["q"] == q and r["n"]]
+            n = sum(r["n"] for r in rs)
+            w = lambda k: round(sum(r[k] * r["n"] for r in rs if r[k] is not None) / n, 2)  # noqa: E731
+            f = sum(r["n"] for r in rs if r["sex"] == "女")
+            y, m = q.split("-")
+            agg.append({"q": f"{y}Q{(int(m) - 1) // 3 + 1}", "n": int(n), "female": round(f / n * 100, 1), "limit": round(w("limit") / 10),
+                        "value": round(w("value") / 10), "ltv": w("ltv"), "rate": w("rate"), "area": w("area")})
+        out["mortgage_terms"] = {"quarters": agg, "source": src("金融聯合徵信中心（購置住宅貸款統計分析表－性別，流量）", 113748, at)}
+        b, a = agg[-1], (agg[-5] if len(agg) >= 5 else agg[0])
+        conc.append(f"{b['q']} 新承做房貸平均授信額度 {b['limit']:,} 萬元（一年前 {a['limit']:,} 萬元），核貸成數 {b['ltv']:.1f}%、利率 {b['rate']:.2f}%；女性借款人占 {b['female']}%。")
+
+    # 3. 房貸存量借款人的年齡（每年）
+    raw, at = _open_data_latest(store, "jcic_loan_age")
+    rows = [r for r in (parse_jcic_loan_age(raw) if raw else []) if r["type"] == "房貸" and r["age"] != "其他"]
+    if rows:
+        y = max(r["y"] for r in rows)
+        ages = list(dict.fromkeys(r["age"] for r in rows if r["y"] == y))
+        g = [{"age": a, "n": int(sum(r["n"] or 0 for r in rows if r["y"] == y and r["age"] == a)),
+              "bal": round(sum(r["bal"] or 0 for r in rows if r["y"] == y and r["age"] == a) / 100)} for a in ages]   # 億元
+        t = sum(x["n"] for x in g) or 1
+        for x in g:
+            x["share"] = round(x["n"] / t * 100, 1)
+        out["mortgage_stock"] = {"year": y, "total": t, "groups": g, "source": src("金融聯合徵信中心（不同年齡及貸款類別授信）", 151726, at)}
+        o = next((x for x in g if x["age"].startswith("65")), None)
+        if o:
+            conc.append(f"{y} 年底有房貸的人約 {t / 10000:,.0f} 萬人，其中 65 歲以上 {o['n'] / 10000:,.1f} 萬人（{o['share']}%），房貸餘額 {o['bal']:,} 億元。")
+
+    # 4. 人口年齡結構（每年，各縣市）
+    raw, at = _open_data_latest(store, "ndc_population")
+    rows = parse_ndc_population(raw) if raw else []
+    if rows:
+        y = max(r["y"] for r in rows)
+        rs = [r for r in rows if r["y"] == y]
+        nat = next((r for r in rs if r["area"] == "臺閩地區"), rs[0])
+        cty = [r for r in rs if r["area"].endswith(("市", "縣"))]
+        out["population"] = {"year": y, "national": nat, "areas": sorted(cty, key=lambda r: -r["p65"]),
+                             "source": src("國家發展委員會（都市及區域發展統計彙編 1-1）", 6326, at)}
+        top = sorted(cty, key=lambda r: -r["p65"])[:3]
+        tops = "、".join(f"{r['area']} {r['p65']}%" for r in top)
+        stage = "已是超高齡社會（20% 以上）" if nat["p65"] >= 20 else "接近超高齡社會門檻 20%"
+        conc.append(f"{y} 年底 65 歲以上人口占 {nat['p65']}%，{stage}；0–14 歲只占 {nat['p0_14']}%。高齡比例最高：{tops}。")
+    if not out:
+        return None
+    out["conclusions"] = conc
+    return out
+
+
 def sources(store):
     meta = store.meta()
     names = dict(meta.get("source_labels") or {})
-    names.update({"open_data": "政府資料開放平臺（104113 保費收入、7191 公司指標、14539 壽險業績）",
+    names.update({"open_data": "政府資料開放平臺（104113 保費收入、7191 公司指標、14539 壽險業績、聯徵中心房貸、國發會人口）",
                   "bank_shelf": "銀行官網保險商品列表（兆豐、華南、永豐）",
                   "declared_rates": "各公司官網宣告利率（國泰、保誠、凱基、台灣人壽、南山）"})
     kind = lambda s: "公司網站（商品條款）" if s.startswith("company_") else {"news_rss": "新聞 RSS", "open_data": "開放資料 API", "bank_shelf": "銀行官網", "declared_rates": "公司網站（宣告利率）"}.get(s, "官方網站")  # noqa: E731
@@ -701,6 +813,7 @@ def main(argv=None) -> int:
     mk = market(store, pids)
     mk["fx_share"] = fx_share(store)
     mk["macro"] = macro(store, rate_data)
+    mk["audience"] = audience(store)
     data = {"meta": {"snapshot_at": now.strftime("%Y-%m-%d %H:%M"), "today": now.date().isoformat(), "self_company": store.self_company,
                      "counts": {"products": len(products), "news": len(news), "regs": len(regs),
                                 "shelf": sum(b["count"] for b in shelf_data["banks"])}},
