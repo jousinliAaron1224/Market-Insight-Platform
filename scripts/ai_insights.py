@@ -4,7 +4,9 @@
     python scripts/ai_insights.py --redo 5     # 重新判讀最新 5 則（改了 prompt 時用）
 
 - 每則只判讀一次（以 raw_doc_id＋PROMPT_VERSION 為鍵）；改了 prompt 就把 PROMPT_VERSION 加一，舊結果自動不再使用。
-- 金鑰：環境變數 OLLAMA_API_KEY，或專案根目錄的 .env（已列入 .gitignore）。沒有金鑰就跳過，網站照舊用規則判讀。
+- 金鑰：環境變數 OLLAMA_API_KEY，或專案根目錄的 .env（已列入 .gitignore）。
+- 沒有金鑰但有團隊密碼時，改借用已部署網站的 AI 伺服器（.env 或環境變數設 AI_PROXY_URL 與 AI_ACCESS_CODE），金鑰只留在伺服器上。
+- 兩種都沒有就跳過，網站照舊用規則判讀。
 - 模型輸出一定要是合法 JSON 且欄位都在允許的值裡，不合格就丟掉（不寫入），下次再試。
 """
 from __future__ import annotations
@@ -41,14 +43,50 @@ SCHEMA = """{"impact_dir":"neg|pos|neu","priority":1到5（5＝法巴這週就�
 "owner":"商品開發|精算|法遵|通路|行銷|投資管理|主管 擇一","actions":["建議行動，最多 2 點，每點 30 字內"]}"""
 
 
-def api_key() -> str | None:
-    if os.environ.get("OLLAMA_API_KEY"):
-        return os.environ["OLLAMA_API_KEY"]
+def _env(name: str) -> str | None:
+    if os.environ.get(name):
+        return os.environ[name]
     env = ROOT / ".env"
     if env.exists():
         for line in env.read_text(encoding="utf-8").splitlines():
-            if line.startswith("OLLAMA_API_KEY="):
+            if line.startswith(name + "="):
                 return line.split("=", 1)[1].strip() or None
+    return None
+
+
+def api_key() -> str | None:
+    return _env("OLLAMA_API_KEY")
+
+
+def proxy() -> tuple[str, str] | None:
+    """沒有自己的金鑰時，借用已部署網站的 AI 伺服器：(網址, 團隊密碼)。"""
+    url, code = _env("AI_PROXY_URL"), _env("AI_ACCESS_CODE")
+    return (url.rstrip("/"), code) if url and code else None
+
+
+def ask_proxy(url: str, code: str, model: str, prompt: str, timeout: int = 300) -> dict | None:
+    """POST {url}/api/ai，回傳是一行一個 JSON（{"t":文字} … {"done":true} 或 {"error":代碼}）。"""
+    body = {"messages": [{"role": "user", "content": prompt}], "tier": "default", "model": model}
+    req = urllib.request.Request(url + "/api/ai", data=json.dumps(body).encode(), headers={"Content-Type": "application/json", "x-access-code": code})
+    for attempt in range(2):
+        try:
+            text, err = "", None
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                for line in r:
+                    ev = json.loads(line) if line.strip() else {}
+                    text += ev.get("t", "")
+                    err = ev.get("error") or err
+            if err:
+                raise ValueError(err)
+            m = re.search(r"\{.*\}", text, re.S)
+            return validate(json.loads(m.group(0))) if m else None
+        except (urllib.error.HTTPError, ValueError) as e:   # 密碼錯（401）或伺服器明確拒絕：重試沒用
+            print(f"AI 伺服器回應失敗：{e}")
+            return None
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
+            if attempt:
+                return None
+            time.sleep(5)
     return None
 
 
@@ -129,9 +167,9 @@ def items(store, cfg) -> list[dict]:
 
 def run(cfg=None, limit: int | None = None, redo: int = 0, log=print) -> dict:
     cfg = cfg or load_config()
-    key = api_key()
-    if not key:
-        return {"skipped": "沒有 OLLAMA_API_KEY"}
+    key, px = api_key(), proxy()
+    if not key and not px:
+        return {"skipped": "沒有 OLLAMA_API_KEY，也沒有 AI_PROXY_URL／AI_ACCESS_CODE"}
     rcfg = cfg.get("radar") or {}
     model = rcfg.get("ai_model", "deepseek-v4-pro:0813")
     limit = limit or int(rcfg.get("ai_limit", 60))
@@ -148,7 +186,7 @@ def run(cfg=None, limit: int | None = None, redo: int = 0, log=print) -> dict:
         prompt = (f"你是法巴人壽商品開發部的市場情報分析師。依下列情報判讀對法巴的影響，只回覆一個 JSON 物件，格式：\n{SCHEMA}\n"
                   f"判讀原則：只根據情報內容，不要編造數字；跟法巴無關（例如只影響產險）就 priority 1～2、impact_dir neu。\n\n"
                   f"法巴背景：{ctx}\n\n情報來源：{x.get('source')}　日期：{x.get('date')}\n標題：{x['title']}\n內文：{body or '（只有標題）'}")
-        r = ask(key, model, prompt)
+        r = ask(key, model, prompt) if key else ask_proxy(px[0], px[1], model, prompt)
         if r:
             c.execute("INSERT OR REPLACE INTO ai_insights VALUES (?,?,?,?,?)", (x["raw_doc_id"], PROMPT_VERSION, model,
                       datetime.now(timezone.utc).isoformat(timespec="seconds"), json.dumps(r, ensure_ascii=False)))
