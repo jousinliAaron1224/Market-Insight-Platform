@@ -276,12 +276,57 @@ sources:
     domain: multiple
     years: 5                     # FRED 只抓近 5 年
     x509_strict: false           # www.cbc.gov.tw 的憑證缺 Subject Key Identifier（同 D15，憑證鏈與主機名稱仍驗證）
+    extra_ca_files: [config/certs/ws.dgbas.gov.tw.pem]   # 主計總處沒送中繼憑證 → 補簽發者憑證（D7），仍完整驗證
     allow_empty_runs: true
     series:
       - {id: ust10, kind: fred, code: DGS10, name: 美國 10 年期公債殖利率, unit: "%", source: FRED（聖路易聯準銀行）, page: "https://fred.stlouisfed.org/series/DGS10"}
       - {id: ust2, kind: fred, code: DGS2, name: 美國 2 年期公債殖利率, unit: "%", source: FRED（聖路易聯準銀行）, page: "https://fred.stlouisfed.org/series/DGS2"}
       - {id: fed, kind: fred, code: DFEDTARU, name: 聯準會利率目標上限, unit: "%", source: FRED（聖路易聯準銀行）, page: "https://fred.stlouisfed.org/series/DFEDTARU"}
       - {id: usdtwd, kind: fred, code: DEXTAUS, name: 美元兌新台幣, unit: 元, source: FRED（聖路易聯準銀行）, page: "https://fred.stlouisfed.org/series/DEXTAUS"}
+      # 美國公債殖利率曲線（1–30 年）
+      - {id: ust1, kind: fred, code: DGS1, name: 美國 1 年期公債殖利率, unit: "%", source: FRED（聖路易聯準銀行）, page: "https://fred.stlouisfed.org/series/DGS1"}
+      - {id: ust3, kind: fred, code: DGS3, name: 美國 3 年期公債殖利率, unit: "%", source: FRED（聖路易聯準銀行）, page: "https://fred.stlouisfed.org/series/DGS3"}
+      - {id: ust5, kind: fred, code: DGS5, name: 美國 5 年期公債殖利率, unit: "%", source: FRED（聖路易聯準銀行）, page: "https://fred.stlouisfed.org/series/DGS5"}
+      - {id: ust7, kind: fred, code: DGS7, name: 美國 7 年期公債殖利率, unit: "%", source: FRED（聖路易聯準銀行）, page: "https://fred.stlouisfed.org/series/DGS7"}
+      - {id: ust20, kind: fred, code: DGS20, name: 美國 20 年期公債殖利率, unit: "%", source: FRED（聖路易聯準銀行）, page: "https://fred.stlouisfed.org/series/DGS20"}
+      - {id: ust30, kind: fred, code: DGS30, name: 美國 30 年期公債殖利率, unit: "%", source: FRED（聖路易聯準銀行）, page: "https://fred.stlouisfed.org/series/DGS30"}
+      # 主要市場 10 年期公債殖利率（OECD 月資料）
+      - {id: de10, kind: fred, code: IRLTLT01DEM156N, name: 德國 10 年期公債殖利率, unit: "%", source: FRED（聖路易聯準銀行）, page: "https://fred.stlouisfed.org/series/IRLTLT01DEM156N"}
+      - {id: jp10, kind: fred, code: IRLTLT01JPM156N, name: 日本 10 年期公債殖利率, unit: "%", source: FRED（聖路易聯準銀行）, page: "https://fred.stlouisfed.org/series/IRLTLT01JPM156N"}
+      - {id: gb10, kind: fred, code: IRLTLT01GBM156N, name: 英國 10 年期公債殖利率, unit: "%", source: FRED（聖路易聯準銀行）, page: "https://fred.stlouisfed.org/series/IRLTLT01GBM156N"}
+      - {id: au10, kind: fred, code: IRLTLT01AUM156N, name: 澳洲 10 年期公債殖利率, unit: "%", source: FRED（聖路易聯準銀行）, page: "https://fred.stlouisfed.org/series/IRLTLT01AUM156N"}
+      # 匯率（每 1 美元；歐元、澳幣、英鎊是每 1 單位兌美元）
+      - {id: jpyusd, kind: fred, code: DEXJPUS, name: 日圓兌美元, unit: "日圓", source: FRED（聖路易聯準銀行）, page: "https://fred.stlouisfed.org/series/DEXJPUS"}
+      - {id: usdeur, kind: fred, code: DEXUSEU, name: 美元兌歐元, unit: "美元", source: FRED（聖路易聯準銀行）, page: "https://fred.stlouisfed.org/series/DEXUSEU"}
+      - {id: cnyusd, kind: fred, code: DEXCHUS, name: 人民幣兌美元, unit: "人民幣", source: FRED（聖路易聯準銀行）, page: "https://fred.stlouisfed.org/series/DEXCHUS"}
+      - {id: usdaud, kind: fred, code: DEXUSAL, name: 美元兌澳幣, unit: "美元", source: FRED（聖路易聯準銀行）, page: "https://fred.stlouisfed.org/series/DEXUSAL"}
+      - {id: usdgbp, kind: fred, code: DEXUSUK, name: 美元兌英鎊, unit: "美元", source: FRED（聖路易聯準銀行）, page: "https://fred.stlouisfed.org/series/DEXUSUK"}
+      - {id: dxy, kind: fred, code: DTWEXBGS, name: 美元指數（廣義）, unit: "指數", source: FRED（聖路易聯準銀行）, page: "https://fred.stlouisfed.org/series/DTWEXBGS"}
+      # 美國物價與薪資（指數，匯出時算年增率）
+      - {id: us_cpi, kind: fred, code: CPIAUCSL, name: 美國 CPI, unit: "指數", source: FRED（聖路易聯準銀行）, page: "https://fred.stlouisfed.org/series/CPIAUCSL", transform: yoy}
+      - {id: us_med, kind: fred, code: CPIMEDSL, name: 美國醫療照護物價, unit: "指數", source: FRED（聖路易聯準銀行）, page: "https://fred.stlouisfed.org/series/CPIMEDSL", transform: yoy}
+      - {id: us_medsvc, kind: fred, code: CUSR0000SAM2, name: 美國醫療服務物價, unit: "指數", source: FRED（聖路易聯準銀行）, page: "https://fred.stlouisfed.org/series/CUSR0000SAM2", transform: yoy}
+      - {id: us_medgoods, kind: fred, code: CUSR0000SAM1, name: 美國藥品與醫療用品物價, unit: "指數", source: FRED（聖路易聯準銀行）, page: "https://fred.stlouisfed.org/series/CUSR0000SAM1", transform: yoy}
+      - {id: us_wage, kind: fred, code: CES0500000003, name: 美國平均時薪, unit: "美元", source: FRED（聖路易聯準銀行）, page: "https://fred.stlouisfed.org/series/CES0500000003", transform: yoy}
+      # 信用與風險
+      - {id: ig_oas, kind: fred, code: BAMLC0A0CM, name: 美國投資級公司債利差, unit: "%", source: FRED（聖路易聯準銀行）, page: "https://fred.stlouisfed.org/series/BAMLC0A0CM"}
+      - {id: hy_oas, kind: fred, code: BAMLH0A0HYM2, name: 美國高收益債利差, unit: "%", source: FRED（聖路易聯準銀行）, page: "https://fred.stlouisfed.org/series/BAMLH0A0HYM2"}
+      - {id: ccc_oas, kind: fred, code: BAMLH0A3HYC, name: 美國 CCC 級以下債券利差, unit: "%", source: FRED（聖路易聯準銀行）, page: "https://fred.stlouisfed.org/series/BAMLH0A3HYC"}
+      - {id: baa10y, kind: fred, code: BAA10Y, name: Moody's Baa 公司債與 10 年期公債利差, unit: "%", source: FRED（聖路易聯準銀行）, page: "https://fred.stlouisfed.org/series/BAA10Y"}
+      - {id: vix, kind: fred, code: VIXCLS, name: VIX 波動率指數, unit: "點", source: FRED（聖路易聯準銀行）, page: "https://fred.stlouisfed.org/series/VIXCLS"}
+      # 主要資產（匯出時算報酬與波動）
+      - {id: sp500, kind: fred, code: SP500, name: 美股 S&P 500, unit: "點", source: FRED（聖路易聯準銀行）, page: "https://fred.stlouisfed.org/series/SP500"}
+      - {id: nasdaq, kind: fred, code: NASDAQCOM, name: 美股那斯達克, unit: "點", source: FRED（聖路易聯準銀行）, page: "https://fred.stlouisfed.org/series/NASDAQCOM"}
+      - {id: ig_tr, kind: fred, code: BAMLCC0A0CMTRIV, name: 美國投資級公司債（總報酬）, unit: "指數", source: FRED（聖路易聯準銀行）, page: "https://fred.stlouisfed.org/series/BAMLCC0A0CMTRIV"}
+      - {id: hy_tr, kind: fred, code: BAMLHYH0A0HYM2TRIV, name: 美國高收益債（總報酬）, unit: "指數", source: FRED（聖路易聯準銀行）, page: "https://fred.stlouisfed.org/series/BAMLHYH0A0HYM2TRIV"}
+      - {id: wti, kind: fred, code: DCOILWTICO, name: WTI 原油, unit: "美元", source: FRED（聖路易聯準銀行）, page: "https://fred.stlouisfed.org/series/DCOILWTICO"}
+      # 台灣：公債殖利率、物價、薪資（政府資料開放平臺，下載網址用 API 查）
+      - {id: tw10, kind: cbc_bond, dataset: 10840, match: EG43M01, name: 台灣 10 年期公債殖利率, unit: "%", source: 中央銀行（政府資料開放平臺 10840）, page: "https://data.gov.tw/dataset/10840"}
+      - {id: tw_cpi_all, kind: dgbas_cpi, dataset: 6019, match: pr0101a1m, name: 台灣消費者物價, unit: "%", source: 行政院主計總處（政府資料開放平臺 6019）, page: "https://data.gov.tw/dataset/6019",
+         outputs: [{id: tw_cpi, item: 總指數, name: 台灣 CPI 年增率}, {id: tw_med, item: 五.醫藥保健類, name: 台灣醫藥保健類物價年增率},
+                   {id: tw_medfee, item: 1.醫療費用, name: 台灣醫療費用年增率}, {id: tw_drug, item: 2.藥品及保健食品, name: 台灣藥品及保健食品年增率}]}
+      - {id: tw_wage_all, kind: dgbas_wage, dataset: 9663, match: mp05002, name: 台灣經常性薪資, unit: 元, source: 行政院主計總處（政府資料開放平臺 9663）, page: "https://data.gov.tw/dataset/9663",
+         outputs: [{id: tw_wage, col: 工業及服務業__, name: 台灣經常性薪資（工業及服務業）, transform: yoy}, {id: tw_wage_fin, col: 金融及保險業, name: 台灣經常性薪資（金融及保險業）, transform: yoy}]}
       - {id: cbc, kind: cbc, name: 中央銀行利率, unit: "%", source: 中央銀行（政府資料開放平臺 10783）, page: "https://data.gov.tw/dataset/10783",
          url: "https://www.cbc.gov.tw/public/data/OpenData/%E7%B6%93%E7%A0%94%E8%99%95/EG28D01.csv"}
 

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
 import sqlite3
 import sys
@@ -690,6 +691,7 @@ def macro(store, rates_data=None):
         v = [p for p in pts if p[0] <= d]
         return v[-1] if v else None
 
+    raw = {}   # 序列 id → (名稱, 單位, 來源, 頁面, 點, transform)；一個檔案拆成多個序列的（CPI、薪資）展開
     for key, url, meta in rows:
         m = json.loads(meta)
         sid, pts = m["series"], m["points"]
@@ -698,20 +700,103 @@ def macro(store, rates_data=None):
             out["cbc"] = {"name": m["title"], "source": m.get("source_name"), "page": m.get("page"), "url": url,
                           "steps": steps, "latest": pts[-1], "prev": pts[-2] if len(pts) > 1 else None}
             continue
+        if m.get("multi"):
+            for k, v in m["multi"].items():
+                raw[k] = (v["name"], v.get("unit"), m.get("source_name"), m.get("page"), v["points"], v.get("transform"))
+        else:
+            raw[sid] = (m["title"], m.get("unit"), m.get("source_name"), m.get("page"), pts, m.get("transform"))
+
+    def series(name, unit, src, page, pts, extra=None):
         last = pts[-1]
         d = date.fromisoformat(last[0])
-        m1 = at_or_before(pts, (d - timedelta(days=30)).isoformat())
-        y1 = at_or_before(pts, (d - timedelta(days=365)).isoformat())
         monthly = {}
         for p in pts:   # 月底值（每月最後一個交易日）
             monthly[p[0][:7]] = p[1]
-        mon = [[k, v] for k, v in sorted(monthly.items())][-60:]
-        ser = {"name": m["title"], "unit": m.get("unit"), "source": m.get("source_name"), "page": m.get("page"),
-               "latest": last, "m1": m1, "y1": y1, "monthly": mon}
+        ser = {"name": name, "unit": unit, "source": src, "page": page, "latest": last,
+               "m1": at_or_before(pts, (d - timedelta(days=30)).isoformat()), "y1": at_or_before(pts, (d - timedelta(days=365)).isoformat()),
+               "monthly": [[k, v] for k, v in sorted(monthly.items())][-60:]}
+        return dict(ser, **(extra or {}))
+
+    def yoy(pts):   # 月資料 → 年增率（%）
+        by = {p[0][:7]: p[1] for p in pts}
+        out_ = []
+        for mth, v in sorted(by.items()):
+            prev = f"{int(mth[:4]) - 1}{mth[4:]}"
+            if prev in by and by[prev]:
+                out_.append([mth + "-01", round((v / by[prev] - 1) * 100, 2)])
+        return out_
+
+    for sid, (name, unit, src, page, pts, tf) in raw.items():
+        if not pts:
+            continue
+        if tf == "yoy":
+            y = yoy(pts)
+            if y:
+                out["series"][sid] = series(name + ("" if name.endswith("年增率") else " 年增率" if name[-1].isascii() else "年增率"), "%", src, page, y,
+                                            {"level": pts[-1], "level_unit": unit})
+            continue
+        ser = series(name, unit, src, page, pts)
         if sid == "fed":   # 最近一次調整
             chg = next(((pts[i - 1], pts[i]) for i in range(len(pts) - 1, 0, -1) if pts[i][1] != pts[i - 1][1]), None)
             ser["last_change"] = {"date": chg[1][0], "from": chg[0][1], "to": chg[1][1]} if chg else None
         out["series"][sid] = ser
+
+    FRED = ("FRED（聖路易聯準銀行）", "https://fred.stlouisfed.org/")
+    pts_of = lambda sid: raw[sid][4] if sid in raw else []   # noqa: E731
+    # 新台幣交叉匯率：同一天的美元兌新台幣 × 各幣別兌美元
+    if "usdtwd" in raw:
+        twd = dict(map(tuple, pts_of("usdtwd")))
+        for sid, base, name, f in [("twd_jpy", "jpyusd", "新台幣兌日圓（每 100 日圓）", lambda t, x: t / x * 100),
+                                   ("twd_eur", "usdeur", "新台幣兌歐元", lambda t, x: t * x), ("twd_cny", "cnyusd", "新台幣兌人民幣", lambda t, x: t / x),
+                                   ("twd_aud", "usdaud", "新台幣兌澳幣", lambda t, x: t * x), ("twd_gbp", "usdgbp", "新台幣兌英鎊", lambda t, x: t * x)]:
+            cross = [[d_, round(f(twd[d_], v), 4)] for d_, v in pts_of(base) if d_ in twd and v]
+            if cross:
+                out["series"][sid] = series(name, "元", FRED[0], FRED[1] + "series/" + {"jpyusd": "DEXJPUS", "usdeur": "DEXUSEU", "cnyusd": "DEXCHUS", "usdaud": "DEXUSAL", "usdgbp": "DEXUSUK"}[base], cross)
+    # 美國公債殖利率曲線：1–30 年，現在與一年前
+    tenors = [(1, "ust1"), (2, "ust2"), (3, "ust3"), (5, "ust5"), (7, "ust7"), (10, "ust10"), (20, "ust20"), (30, "ust30")]
+    if all(t[1] in raw for t in tenors):
+        ref = date.fromisoformat(pts_of("ust10")[-1][0])
+        out["curve"] = {"date": ref.isoformat(), "points": [{"y": y, "now": pts_of(s_)[-1][1],
+                        "m1": (at_or_before(pts_of(s_), (ref - timedelta(days=30)).isoformat()) or [None, None])[1],
+                        "y1": (at_or_before(pts_of(s_), (ref - timedelta(days=365)).isoformat()) or [None, None])[1]} for y, s_ in tenors]}
+    # 債券波動率：美債 10 年期殖利率每日變動（基點）近 21 個交易日的標準差，年化（MOVE 指數不是公開資料，改用實現波動率）
+    if "ust10" in raw:
+        p10 = pts_of("ust10")
+        chg = [(p10[i][0], (p10[i][1] - p10[i - 1][1]) * 100) for i in range(1, len(p10))]
+        vol = []
+        for i in range(21, len(chg) + 1):
+            w = [x for _, x in chg[i - 21:i]]
+            mu = sum(w) / len(w)
+            vol.append([chg[i - 1][0], round((sum((x - mu) ** 2 for x in w) / (len(w) - 1)) ** 0.5 * 252 ** 0.5, 1)])
+        if vol:
+            out["series"]["bond_vol"] = series("美債 10 年期殖利率波動率（近 21 個交易日，年化）", "bp", "FRED（聖路易聯準銀行）DGS10，自行計算", FRED[1] + "series/DGS10", vol)
+    # 主要資產：近一年報酬、今年以來報酬、年化波動、最大跌幅
+    assets = []
+    for sid in ("sp500", "nasdaq", "ig_tr", "hy_tr", "wti", "dxy"):
+        pts = pts_of(sid)
+        if len(pts) < 30:
+            continue
+        last = pts[-1]
+        d = date.fromisoformat(last[0])
+        start = at_or_before(pts, (d - timedelta(days=365)).isoformat())
+        ystart = at_or_before(pts, f"{d.year - 1}-12-31")
+        win = [p for p in pts if p[0] >= (start or pts[0])[0]]
+        rets = [math.log(win[i][1] / win[i - 1][1]) for i in range(1, len(win)) if win[i - 1][1] > 0 and win[i][1] > 0]
+        mu = sum(rets) / len(rets)
+        peak, mdd = win[0][1], 0.0
+        for _, v in win:
+            peak = max(peak, v)
+            mdd = min(mdd, v / peak - 1)
+        monthly = {}
+        for p in win:
+            monthly[p[0][:7]] = p[1]
+        assets.append({"id": sid, "name": raw[sid][0], "latest": last, "ret_1y": round((last[1] / start[1] - 1) * 100, 2) if start else None,
+                       "ret_ytd": round((last[1] / ystart[1] - 1) * 100, 2) if ystart else None,
+                       "vol_1y": round((sum((r - mu) ** 2 for r in rets) / (len(rets) - 1)) ** 0.5 * 252 ** 0.5 * 100, 2),
+                       "mdd_1y": round(mdd * 100, 2), "path": [[k, round(v / win[0][1] * 100, 2)] for k, v in sorted(monthly.items())],
+                       "page": FRED[1] + "series/" + {"sp500": "SP500", "nasdaq": "NASDAQCOM", "ig_tr": "BAMLCC0A0CMTRIV", "hy_tr": "BAMLHYH0A0HYM2TRIV", "wti": "DCOILWTICO", "dxy": "DTWEXBGS"}[sid]})
+    if assets:
+        out["assets"] = assets
     S = out["series"]
     pp = lambda x: f"{x:+.2f}".replace("+", "升 ").replace("-", "降 ")   # noqa: E731
     if "ust10" in S and S["ust10"]["m1"]:
