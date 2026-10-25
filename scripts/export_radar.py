@@ -535,6 +535,93 @@ def rate_news(r):
     return out
 
 
+# ---------- 商品規格變動：同一商品的條款前後兩版，欄位有差異就發一則情報 ----------
+SPEC_FIELDS = [   # (extract_features 的欄位, 顯示名稱, 格式)
+    ("premium_charge_pct", "前置費用", "pct"), ("surrender_max_pct", "解約費用上限", "pct"), ("distribution", "提解／撥回機制", "bool"),
+    ("stop_profit", "停利機制", "bool"), ("bonus", "加值給付", "bool"), ("partial_withdrawal", "部分提領", "bool"),
+    ("min_death_guarantee", "最低身故保證", "bool"), ("death_type", "身故給付型態", "list"), ("annuity_guarantee_years", "年金保證期間（年）", "list"),
+    ("accumulation_min_years", "年金累積期間下限（年）", "num"), ("discretionary", "全權委託帳戶", "bool"), ("basic_amount_change", "基本保額變更", "bool")]
+MAX_FIELD_CHANGES = 5   # 一次改超過這麼多欄位，通常是兩版內容不一樣（抓錯檔、換了解析規則），不是商品改版 → 不發情報
+
+
+def _spec_val(v, kind):
+    if v is None:
+        return "未載明"
+    return {"pct": lambda x: f"{x:g}%", "bool": lambda x: "有" if x else "無", "list": lambda x: "、".join(map(str, x)), "num": lambda x: f"{x:g}"}[kind](v)
+
+
+def spec_changes(store):
+    """clause_docs 同一商品的相鄰兩版 → 欄位差異。回傳 (changes, skipped)。
+
+    只比兩版「確定是同一商品」的條款：兩版的條款前言（seq 0）都要出現商品名稱。
+    2026-10-03 台灣人壽第一次抓取時 40 張商品抓到的是「全權委託帳戶批註條款」，不是商品條款本身，硬比會得到假的改版。"""
+    from web.product_lab import extract_features
+    c = sqlite3.connect(f"file:{store.db_path}?mode=ro", uri=True)
+    c.row_factory = sqlite3.Row
+    try:
+        docs = [dict(r) for r in c.execute("""SELECT d.raw_doc_id, d.item_key, d.company, d.product_name, d.version, d.parser, r.fetched_at, r.url
+                                              FROM clause_docs d JOIN raw_docs r ON r.id = d.raw_doc_id
+                                              WHERE d.product_name IS NOT NULL ORDER BY d.item_key, d.version""")]
+        terms = {(r["company"], r["name"]): dict(r) for r in c.execute("SELECT * FROM product_terms")}
+
+        def load(rid):
+            return [dict(r) for r in c.execute("SELECT seq, kind, article_no, title, text FROM clause_articles WHERE raw_doc_id=? ORDER BY seq", (rid,))]
+
+        def feats(d, arts):
+            t = terms.get((d["company"], d["product_name"])) or {}
+            # 兩版都只用條文內容抽欄位（不帶 product_terms 的給付項目、幣別），這樣比的是同一套規則
+            return extract_features({"name": d["product_name"], "line": t.get("line"), "currency": "", "payment_modes": "[]", "coverage": "[]", "riders": None}, arts)
+
+        by: dict[str, list] = {}
+        for d in docs:
+            by.setdefault(d["item_key"], []).append(d)
+        out, skipped = [], []
+        for key, vs in by.items():
+            for a, b in zip(vs, vs[1:]):
+                aa, ba = load(a["raw_doc_id"]), load(b["raw_doc_id"])
+                name = re.sub(r"\s+", "", b["product_name"])
+                pre = lambda arts: re.sub(r"\s+", "", next((x["text"] for x in arts if x["seq"] == 0), ""))   # noqa: E731
+                if not aa or not ba or name not in pre(aa) or name not in pre(ba) or a["parser"] != b["parser"]:
+                    skipped.append((b["company"], b["product_name"], "兩版不是同一份商品條款"))
+                    continue
+                fa, fb = feats(a, aa), feats(b, ba)
+                ch = [(lab, _spec_val(fa.get(k), kind), _spec_val(fb.get(k), kind), k) for k, lab, kind in SPEC_FIELDS if fa.get(k) != fb.get(k)]
+                if not ch:
+                    continue
+                if len(ch) > MAX_FIELD_CHANGES:
+                    skipped.append((b["company"], b["product_name"], f"一次 {len(ch)} 個欄位不同，疑似抽取結果不一致"))
+                    continue
+                out.append({"company": b["company"], "name": b["product_name"], "from": a["fetched_at"][:10], "to": b["fetched_at"][:10],
+                            "changes": ch, "url": (terms.get((b["company"], b["product_name"])) or {}).get("clause_url") or b["url"]})
+        return out, skipped
+    finally:
+        c.close()
+
+
+def spec_news(changes, pids, today: date, days: int = 90):
+    """規格變動 → 情報：每張商品每次改版一則。費用類欄位有變重要性 4，其他 3；自家商品算「公司策略」。"""
+    since = (today - timedelta(days=days)).isoformat()
+    names = {v: k for k, v in CO.items()}
+    out = []
+    for x in sorted(changes, key=lambda x: x["to"], reverse=True):
+        if x["to"] < since:
+            continue
+        co = CO.get(x["company"])
+        who = "法巴人壽" if co == "cardif" else x["company"]
+        short = x["name"].replace(x["company"], "", 1) or x["name"]
+        fee = any(k in ("premium_charge_pct", "surrender_max_pct") for *_, k in x["changes"])
+        head = "、".join(f"{lab} {a} → {b}" for lab, a, b, _ in x["changes"][:2]) + (f"等 {len(x['changes'])} 項" if len(x["changes"]) > 2 else "")
+        n = _news(x["to"], f"{who}{short} 條款調整：{head}", f"{who}官網商品條款（兩個版本比對）", "公司策略" if co == "cardif" else "競品新商品", [co] if co else [], ["inv"],
+                  4 if fee and co != "cardif" else 3,
+                  "自家商品條款調整" if co == "cardif" else ("競品調整費用條件，會改變銀行理專比較投資型商品的成本" if fee else "競品調整商品機制，需確認是否影響和法巴商品的比較"),
+                  [f"來源：{who}官網商品條款，系統在 {x['from']} 與 {x['to']} 各抓一版比對", *[f"{lab}：{a} → {b}" for lab, a, b, _ in x["changes"]]],
+                  "到商品資料庫看這張商品的最新條款，和法巴同險種商品並排比較。", f"company_{co}_products" if co else "company", x["url"])
+        pid = pids.get(x["name"])
+        n["prods"], n["prodCount"] = ([pid] if pid else []), (1 if pid else 0)
+        out.append(n)
+    return out
+
+
 def product_news(products, today: date, days: int = 90):
     """條款資料的新核准商品 → 情報：同一家公司同一天核准的合併成一則。"""
     since = (today - timedelta(days=days)).isoformat()
@@ -805,7 +892,13 @@ def main(argv=None) -> int:
     pn = product_news(products, now.date())
     for i, n in enumerate(pn):
         n["id"] = f"N{800 + i}"
-    news = sorted(news + sn + rn + pn, key=lambda n: n["d"] or "", reverse=True)
+    sc, sc_skipped = spec_changes(store)
+    cn = spec_news(sc, pids, now.date())
+    for i, n in enumerate(cn):
+        n["id"] = f"N{600 + i}"
+    if sc_skipped:
+        print(f"規格變動：略過 {len(sc_skipped)} 組（兩版不是同一份條款或抽取結果不一致），例：{sc_skipped[0][0]}{sc_skipped[0][1]}（{sc_skipped[0][2]}）")
+    news = sorted(news + sn + rn + pn + cn, key=lambda n: n["d"] or "", reverse=True)
     products += shelf_products(store, cfg, shelf_data, start=400 + len(products))   # 接在條款商品後面編號，不能重複
     dup = {p["id"] for p in products if sum(q["id"] == p["id"] for q in products) > 1}
     if dup:
