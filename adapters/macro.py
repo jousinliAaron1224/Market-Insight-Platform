@@ -108,6 +108,7 @@ class MacroAdapter(SourceAdapter):
         super().__init__(ctx, config)
         self.series: list[dict[str, Any]] = config.get("series", [])
         self.years = int(config.get("years", 5))
+        self.history_from = config.get("history_from")   # 長期月資料起點（例 1990-01-01）；網站圖表可以縮放看更長的期間
         self.respect_robots: bool = bool(config.get("respect_robots", True))
 
     def _url(self, s: dict[str, Any]) -> str:
@@ -144,12 +145,19 @@ class MacroAdapter(SourceAdapter):
             points = {"fred": parse_fred, "cbc": parse_cbc, "cbc_bond": parse_cbc_bond}[s["kind"]](text)
         if not points:
             raise ValueError(f"{s['id']}：解析不到任何數值（格式可能改了）")
+        history = None
+        if s["kind"] == "fred" and self.history_from:   # 另抓一份長期月底值（FRED 端彙總，不必下載幾十年的日資料）
+            h = self.ctx.http.get(f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={s['code']}&cosd={self.history_from}&fq=Monthly&fam=eop",
+                                  respect_robots=self.respect_robots)
+            history = parse_fred(h.content.decode("utf-8-sig", errors="replace"))
         ext = "xml" if s["kind"].startswith("dgbas") else "csv"
         path, _ = self.ctx.raw.put(self.source_id, raw, ext, now)
         meta = {"title": s["name"], "series": s["id"], "kind": s["kind"], "unit": s.get("unit"), "source_name": s.get("source"),
                 "page": s.get("page"), "group": s.get("group"), "transform": s.get("transform"), "points": points, "latest": points[-1],
                 "event_extra": {"series": s["id"]}}
+        if history:
+            meta["history"] = history
         if multi is not None:
             meta["multi"] = {o["id"]: {"name": o["name"], "unit": o.get("unit", s.get("unit")), "transform": o.get("transform"), "points": multi[o["id"]]} for o in s["outputs"]}
-        return RawDoc(self.source_id, ref.item_key, ref.url, now, content_fingerprint({"points": points, "multi": meta.get("multi")}), ext,
+        return RawDoc(self.source_id, ref.item_key, ref.url, now, content_fingerprint({"points": points, "multi": meta.get("multi"), "history": history}), ext,
                       path, None, None, meta)

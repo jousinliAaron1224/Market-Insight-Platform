@@ -274,7 +274,8 @@ sources:
     schedule: "30 7 * * *"       # 每天一次（FRED 前一個交易日的資料約在美東早上更新）
     adapter: adapters.macro:MacroAdapter
     domain: multiple
-    years: 5                     # FRED 只抓近 5 年
+    years: 5                     # FRED 日資料只抓近 5 年
+    history_from: "1990-01-01"   # 另抓 1990 年起的月底值，網站圖表可以縮放看長期
     x509_strict: false           # www.cbc.gov.tw 的憑證缺 Subject Key Identifier（同 D15，憑證鏈與主機名稱仍驗證）
     extra_ca_files: [config/certs/ws.dgbas.gov.tw.pem]   # 主計總處沒送中繼憑證 → 補簽發者憑證（D7），仍完整驗證
     allow_empty_runs: true

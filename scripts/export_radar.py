@@ -692,6 +692,7 @@ def macro(store, rates_data=None):
         return v[-1] if v else None
 
     raw = {}   # 序列 id → (名稱, 單位, 來源, 頁面, 點, transform)；一個檔案拆成多個序列的（CPI、薪資）展開
+    hist = {}  # 序列 id → 1990 年起的月底值（FRED 序列才有）
     for key, url, meta in rows:
         m = json.loads(meta)
         sid, pts = m["series"], m["points"]
@@ -705,20 +706,26 @@ def macro(store, rates_data=None):
                 raw[k] = (v["name"], v.get("unit"), m.get("source_name"), m.get("page"), v["points"], v.get("transform"))
         else:
             raw[sid] = (m["title"], m.get("unit"), m.get("source_name"), m.get("page"), pts, m.get("transform"))
+            if m.get("history"):
+                hist[sid] = m["history"]
 
-    def series(name, unit, src, page, pts, extra=None):
+    def month_end(pts, h=None):   # 長期月底值＋近期日資料的月底值（近期的覆蓋長期的）
+        monthly = {p[0][:7]: p[1] for p in (h or [])}
+        for p in pts:   # 每月最後一個交易日
+            monthly[p[0][:7]] = p[1]
+        return monthly
+
+    def series(name, unit, src, page, pts, extra=None, h=None):
         last = pts[-1]
         d = date.fromisoformat(last[0])
-        monthly = {}
-        for p in pts:   # 月底值（每月最後一個交易日）
-            monthly[p[0][:7]] = p[1]
+        monthly = month_end(pts, h)
         ser = {"name": name, "unit": unit, "source": src, "page": page, "latest": last,
                "m1": at_or_before(pts, (d - timedelta(days=30)).isoformat()), "y1": at_or_before(pts, (d - timedelta(days=365)).isoformat()),
-               "monthly": [[k, v] for k, v in sorted(monthly.items())][-60:]}
+               "monthly": [[k, v] for k, v in sorted(monthly.items()) if k >= "1990"]}
         return dict(ser, **(extra or {}))
 
-    def yoy(pts):   # 月資料 → 年增率（%）
-        by = {p[0][:7]: p[1] for p in pts}
+    def yoy(pts, h=None):   # 月資料 → 年增率（%）
+        by = month_end(pts, h)
         out_ = []
         for mth, v in sorted(by.items()):
             prev = f"{int(mth[:4]) - 1}{mth[4:]}"
@@ -730,12 +737,12 @@ def macro(store, rates_data=None):
         if not pts:
             continue
         if tf == "yoy":
-            y = yoy(pts)
+            y = yoy(pts, hist.get(sid))
             if y:
                 out["series"][sid] = series(name + ("" if name.endswith("年增率") else " 年增率" if name[-1].isascii() else "年增率"), "%", src, page, y,
                                             {"level": pts[-1], "level_unit": unit})
             continue
-        ser = series(name, unit, src, page, pts)
+        ser = series(name, unit, src, page, pts, h=hist.get(sid))
         if sid == "fed":   # 最近一次調整
             chg = next(((pts[i - 1], pts[i]) for i in range(len(pts) - 1, 0, -1) if pts[i][1] != pts[i - 1][1]), None)
             ser["last_change"] = {"date": chg[1][0], "from": chg[0][1], "to": chg[1][1]} if chg else None
@@ -750,8 +757,10 @@ def macro(store, rates_data=None):
                                    ("twd_eur", "usdeur", "新台幣兌歐元", lambda t, x: t * x), ("twd_cny", "cnyusd", "新台幣兌人民幣", lambda t, x: t / x),
                                    ("twd_aud", "usdaud", "新台幣兌澳幣", lambda t, x: t * x), ("twd_gbp", "usdgbp", "新台幣兌英鎊", lambda t, x: t * x)]:
             cross = [[d_, round(f(twd[d_], v), 4)] for d_, v in pts_of(base) if d_ in twd and v]
+            th, bh = {p[0]: p[1] for p in hist.get("usdtwd", [])}, hist.get(base, [])
+            cross_h = [[d_, round(f(th[d_], v), 4)] for d_, v in bh if d_ in th and v]   # 長期：同一個月的月底值相除
             if cross:
-                out["series"][sid] = series(name, "元", FRED[0], FRED[1] + "series/" + {"jpyusd": "DEXJPUS", "usdeur": "DEXUSEU", "cnyusd": "DEXCHUS", "usdaud": "DEXUSAL", "usdgbp": "DEXUSUK"}[base], cross)
+                out["series"][sid] = series(name, "元", FRED[0], FRED[1] + "series/" + {"jpyusd": "DEXJPUS", "usdeur": "DEXUSEU", "cnyusd": "DEXCHUS", "usdaud": "DEXUSAL", "usdgbp": "DEXUSUK"}[base], cross, h=cross_h)
     # 美國公債殖利率曲線：1–30 年，現在與一年前
     tenors = [(1, "ust1"), (2, "ust2"), (3, "ust3"), (5, "ust5"), (7, "ust7"), (10, "ust10"), (20, "ust20"), (30, "ust30")]
     if all(t[1] in raw for t in tenors):
@@ -794,6 +803,7 @@ def macro(store, rates_data=None):
                        "ret_ytd": round((last[1] / ystart[1] - 1) * 100, 2) if ystart else None,
                        "vol_1y": round((sum((r - mu) ** 2 for r in rets) / (len(rets) - 1)) ** 0.5 * 252 ** 0.5 * 100, 2),
                        "mdd_1y": round(mdd * 100, 2), "path": [[k, round(v / win[0][1] * 100, 2)] for k, v in sorted(monthly.items())],
+                       "monthly": [[k, v] for k, v in sorted(month_end(pts, hist.get(sid)).items()) if k >= "1990"],
                        "page": FRED[1] + "series/" + {"sp500": "SP500", "nasdaq": "NASDAQCOM", "ig_tr": "BAMLCC0A0CMTRIV", "hy_tr": "BAMLHYH0A0HYM2TRIV", "wti": "DCOILWTICO", "dxy": "DTWEXBGS"}[sid]})
     if assets:
         out["assets"] = assets
